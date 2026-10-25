@@ -38,4 +38,6 @@ public enum CancellationReason: Sendable, Equatable {
 }
 
 /// Every event of one run, in order. It finishes after the last event.
-public typealias ServiceEvents<Failure: Error> = AsyncStream<Result<ServiceEvent, ServiceError<Failure>>>
+public typealias ServiceEvents<Failure: Error> = AsyncStream<
+    Result<ServiceEvent, ServiceError<Failure>>
+>

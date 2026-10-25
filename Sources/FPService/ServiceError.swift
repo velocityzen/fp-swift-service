@@ -53,7 +53,8 @@ public indirect enum ServiceError<Failure: Error>: Error, CustomStringConvertibl
             case .stopFailed(let error): "Service failed to stop: \(error)"
             case .serveAndStopFailed(let serve, let stop):
                 "Service failed while serving: \(serve); then failed to stop: \(stop)"
-            case .shutdownTimeout(let after): "Service did not shut down within \(after) and was cancelled."
+            case .shutdownTimeout(let after):
+                "Service did not shut down within \(after) and was cancelled."
         }
     }
 

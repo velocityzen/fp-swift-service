@@ -70,7 +70,10 @@ Pass a closure to observe every lifecycle event as a stream of `Result`s (`swift
 
 <!-- example: events -->
 ```swift
-let withService = Service(withDependencies(), shutdownSignals: [SIGINT, SIGTERM]) { events in
+let withService = Service(
+    withDependencies(),
+    shutdownSignals: [SIGINT, SIGTERM]
+) { events in
     for await event in events {
         switch event {
             case .success(let event): print("event: \(event)")
@@ -90,7 +93,10 @@ Calling the service with no argument just waits for a signal. To do work while t
 <!-- example: job -->
 ```swift
 /// Does a fixed amount of work, then returns — which stops the service.
-func importBatches(_ resources: (Database, Server), _: Shutdown) async -> Result<Void, ExampleError> {
+func importBatches(
+    _ resources: (Database, Server),
+    _: Shutdown
+) async -> Result<Void, ExampleError> {
     for batch in 1...3 {
         try? await Task.sleep(for: .seconds(1))
         print("imported batch \(batch)")

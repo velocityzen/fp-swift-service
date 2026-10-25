@@ -51,14 +51,17 @@ struct LifecycleTests {
             return
         }
         #expect(!log.all.contains("serve"))
-        #expect(log.with(prefix: "stop:") == ["stop:a"])   // a was acquired, so the bracket released it
+        // a was acquired, so the bracket released it
+        #expect(log.with(prefix: "stop:") == ["stop:a"])
         #expect(harness.log.events == ["started", "failed: start"])
     }
 
     @Test("the default serve stays up until shutdown")
     func defaultServe() async throws {
         let harness = Harness()
-        let result = try await run(harness, serve: nil, waitingFor: ["event: ready"], then: { harness.send(SIGTERM) }) {
+        let result = try await run(
+            harness, serve: nil, waitingFor: ["event: ready"], then: { harness.send(SIGTERM) }
+        ) {
             probe("a", harness.log)
         }
         #expect(try result.get().shutdownReason == .signal(SIGTERM))
@@ -99,7 +102,9 @@ struct LifecycleTests {
             chain(log, b: probe("b", log, stop: .failure(.boom("b-stop"))))
         }
 
-        guard case .serveAndStopFailed(.boom("serve"), .boom("b-stop")) = try #require(result.failure) else {
+        guard
+            case .serveAndStopFailed(.boom("serve"), .boom("b-stop")) = try #require(result.failure)
+        else {
             Issue.record("expected serveAndStopFailed, got \(result)")
             return
         }
@@ -110,7 +115,8 @@ struct LifecycleTests {
     func throwingBracket() async throws {
         let result = try await withDeadline {
             let withService = Service(
-                BracketAsync<Int, any Error>.throwing(acquire: { throw TestError.boom("thrown") }, dispose: { _ in })
+                BracketAsync<Int, any Error>.throwing(
+                    acquire: { throw TestError.boom("thrown") }, dispose: { _ in })
             )
             return await withService()
         }

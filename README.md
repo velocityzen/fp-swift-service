@@ -87,7 +87,10 @@ Pass a closure to observe the service. It receives every lifecycle event as a st
 
 <!-- example: events -->
 ```swift
-let withService = Service(withDependencies(), shutdownSignals: [SIGINT, SIGTERM]) { events in
+let withService = Service(
+    withDependencies(),
+    shutdownSignals: [SIGINT, SIGTERM]
+) { events in
     for await event in events {
         switch event {
             case .success(let event): print("event: \(event)")
@@ -111,7 +114,10 @@ Calling `withService()` with no argument just waits for a signal. To do work whi
 <!-- example: job -->
 ```swift
 /// Does a fixed amount of work, then returns — which stops the service.
-func importBatches(_ resources: (Database, Server), _: Shutdown) async -> Result<Void, ExampleError> {
+func importBatches(
+    _ resources: (Database, Server),
+    _: Shutdown
+) async -> Result<Void, ExampleError> {
     for batch in 1...3 {
         try? await Task.sleep(for: .seconds(1))
         print("imported batch \(batch)")
@@ -137,7 +143,9 @@ The simplest way to use it is `withCancellation(on: shutdown, work)`. It runs `w
 <!-- example: requests -->
 ```swift
 /// Handles requests until shutdown is requested, then stops and returns.
-func handleRequests(_ resources: (Database, Server), _ shutdown: Shutdown) async -> Result<Void, ExampleError> {
+func handleRequests(_ resources: (Database, Server), _ shutdown: Shutdown) async -> Result<
+    Void, ExampleError
+> {
     await withCancellation(on: shutdown, work)
 }
 
@@ -208,7 +216,9 @@ final class Server: Sendable {
 <!-- example: drain -->
 ```swift
 /// Lets the server finish the request in flight instead of cancelling it.
-func drainRequests(_ resources: (Database, Server), _ shutdown: Shutdown) async -> Result<Void, ExampleError> {
+func drainRequests(_ resources: (Database, Server), _ shutdown: Shutdown) async -> Result<
+    Void, ExampleError
+> {
     let (_, server) = resources
     return await withShutdownHandler(on: shutdown, server.beginGracefulShutdown) {
         await server.run()

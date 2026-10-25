@@ -32,7 +32,7 @@ struct ProcessSignalsTests {
     func duplicates() async throws {
         let stream = await processSignals([SIGURG, SIGURG])
         raise(SIGURG)
-        raise(SIGWINCH)   // not taken over: default action (ignore), not delivered
+        raise(SIGWINCH)  // not taken over: default action (ignore), not delivered
         raise(SIGURG)
         #expect(try await collect(2, from: stream) == [SIGURG, SIGURG])
     }
@@ -51,7 +51,7 @@ struct ProcessSignalsTests {
                 group.addTask {
                     let stream = await processSignals([SIGURG])
                     let during = disposition(SIGURG)
-                    for await _ in stream {}   // ends only when cancelled
+                    for await _ in stream {}  // ends only when cancelled
                     return during
                 }
                 // Give the consumer time to install and start waiting; the
@@ -70,7 +70,11 @@ struct DeadlineExceeded: Error {}
 
 /// The first `count` elements (fewer if the stream ends), or a failure
 /// instead of a hang if they never arrive.
-func collect(_ count: Int, from stream: AsyncStream<Int32>, within limit: Duration = .seconds(5)) async throws -> [Int32] {
+func collect(
+    _ count: Int,
+    from stream: AsyncStream<Int32>,
+    within limit: Duration = .seconds(5)
+) async throws -> [Int32] {
     try await withThrowingTaskGroup(of: [Int32]?.self) { group in
         group.addTask {
             var collected: [Int32] = []
@@ -85,7 +89,9 @@ func collect(_ count: Int, from stream: AsyncStream<Int32>, within limit: Durati
             return nil
         }
         defer { group.cancelAll() }
-        guard let first = try await group.next(), let collected = first else { throw DeadlineExceeded() }
+        guard let first = try await group.next(), let collected = first else {
+            throw DeadlineExceeded()
+        }
         return collected
     }
 }
@@ -102,7 +108,9 @@ func deadline<T: Sendable>(
             return nil
         }
         defer { group.cancelAll() }
-        guard let first = try await group.next(), let value = first else { throw DeadlineExceeded() }
+        guard let first = try await group.next(), let value = first else {
+            throw DeadlineExceeded()
+        }
         return value
     }
 }

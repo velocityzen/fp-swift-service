@@ -84,7 +84,9 @@ func probe(
 }
 
 /// Three probes composed with do-notation: a → b → c.
-func chain(_ log: Recorder, b: BracketAsync<String, TestError>? = nil) -> BracketAsync<(String, String, String), TestError> {
+func chain(_ log: Recorder, b: BracketAsync<String, TestError>? = nil) -> BracketAsync<
+    (String, String, String), TestError
+> {
     BracketAsyncDo<TestError>()
         .bind { probe("a", log) }
         .bind { _ in b ?? probe("b", log) }
@@ -105,14 +107,16 @@ enum ServeMode: Sendable {
     case finishWithHandler
 }
 
-func serving<Resource>(_ mode: ServeMode, _ log: Recorder) -> @Sendable (Resource, Shutdown) async -> Result<Void, TestError> {
+typealias Serve<Resource> = @Sendable (Resource, Shutdown) async -> Result<Void, TestError>
+
+func serving<Resource>(_ mode: ServeMode, _ log: Recorder) -> Serve<Resource> {
     { _, shutdown in
         log.append("serve")
         switch mode {
             case .untilShutdown:
                 await shutdown.requested
             case .ignoreShutdown:
-                await Shutdown().requested   // never requested: returns only when cancelled
+                await Shutdown().requested  // never requested: returns only when cancelled
             case .finish:
                 break
             case .fail:

@@ -37,11 +37,13 @@ final class ManualClock: Clock, Sendable {
             return state.nextID
         }
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
                 let immediate: Bool? = state.withLock { state in
                     if deadline <= state.now { return true }
                     if Task.isCancelled { return false }
-                    state.sleepers.append(Sleeper(id: id, deadline: deadline, continuation: continuation))
+                    state.sleepers.append(
+                        Sleeper(id: id, deadline: deadline, continuation: continuation))
                     return nil
                 }
                 switch immediate {

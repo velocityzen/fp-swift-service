@@ -101,7 +101,8 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
     ///   finished, the signal dispositions are restored and the observer has
     ///   returned.
     public consuming func callAsFunction(
-        _ serve: sending @escaping (Resource, Shutdown) async -> Result<Void, Failure> = { _, shutdown in
+        _ serve: sending @escaping (Resource, Shutdown) async -> Result<Void, Failure> = {
+            _, shutdown in
             await shutdown.requested
             return .success(())
         }
@@ -117,7 +118,8 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
         if observe != nil {
             (events, continuation) = ServiceEvents<Failure>.makeStream()
         }
-        let run = ServiceRun<Failure>(clock: clock, continuation: continuation, terminate: terminate)
+        let run = ServiceRun<Failure>(
+            clock: clock, continuation: continuation, terminate: terminate)
         let timeout = shutdownTimeout
 
         async let observed: Void = runObserver(observe, events)

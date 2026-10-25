@@ -4,7 +4,7 @@ import Testing
 /// Waits until cancelled, then reports it as its own result.
 @Sendable
 private func untilCancelled() async -> Result<String, TestError> {
-    await Shutdown().requested   // never requested: returns only when cancelled
+    await Shutdown().requested  // never requested: returns only when cancelled
     return .success(Task.isCancelled ? "cancelled" : "not cancelled")
 }
 
@@ -41,7 +41,9 @@ struct WithCancellationTests {
     @Test("a failure before shutdown comes back at once")
     func failureFirst() async throws {
         let result = try await withDeadline {
-            await withCancellation(on: Shutdown()) { Result<String, TestError>.failure(.boom("work")) }
+            await withCancellation(on: Shutdown()) {
+                Result<String, TestError>.failure(.boom("work"))
+            }
         }
         #expect(result == .failure(.boom("work")))
     }

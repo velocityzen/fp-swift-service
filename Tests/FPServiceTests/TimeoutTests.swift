@@ -34,10 +34,11 @@ struct TimeoutTests {
             Issue.record("expected shutdownTimeout(10s), got \(result)")
             return
         }
-        #expect(harness.log.events == [
-            "started", "ready", "signal 15", "shutting down: signal 15",
-            "cancelling: shutdown timeout", "failed: shutdown timeout", "stopped",
-        ])
+        #expect(
+            harness.log.events == [
+                "started", "ready", "signal 15", "shutting down: signal 15",
+                "cancelling: shutdown timeout", "failed: shutdown timeout", "stopped",
+            ])
         #expect(harness.log.all.contains("stopped:a"))
     }
 
@@ -56,7 +57,7 @@ struct TimeoutTests {
                 await clock.waitForSleepers()
                 clock.advance(by: .seconds(5))
                 await harness.log.wait(for: "event: cancelling: shutdown timeout")
-                gate.open()                       // the probe's dispose ignores cancellation
+                gate.open()  // the probe's dispose ignores cancellation
             }
         ) {
             probe("a", harness.log, stopGate: gate)
@@ -88,6 +89,10 @@ struct TimeoutTests {
             probe("a", harness.log, stopGate: gate)
         }
 
-        #expect(try result.get() == ServiceOutcome(shutdownReason: .serveReturned, cancellationReason: nil, stopDuration: .seconds(3)))
+        #expect(
+            try result.get()
+                == ServiceOutcome(
+                    shutdownReason: .serveReturned, cancellationReason: nil,
+                    stopDuration: .seconds(3)))
     }
 }

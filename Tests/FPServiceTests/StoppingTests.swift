@@ -18,13 +18,18 @@ struct StoppingTests {
         #expect(try result.get().shutdownReason == .serveReturned)
         let all = harness.log.all
         #expect(all.firstIndex(of: "handler")! < all.firstIndex(of: "stop:a")!)
-        #expect(harness.log.events == ["started", "ready", "shutting down: serve returned", "stopped"])
+        #expect(
+            harness.log.events == ["started", "ready", "shutting down: serve returned", "stopped"])
     }
 
     @Test("the first signal starts the graceful stage")
     func firstSignal() async throws {
         let harness = Harness()
-        let result = try await run(harness, waitingFor: ["serve"], then: { harness.send(SIGTERM) }) {
+        let result = try await run(
+            harness,
+            waitingFor: ["serve"],
+            then: { harness.send(SIGTERM) }
+        ) {
             probe("a", harness.log)
         }
 
@@ -56,7 +61,7 @@ struct StoppingTests {
         #expect(outcome.shutdownReason == .signal(SIGTERM))
         #expect(outcome.cancellationReason == .signal(SIGINT))
         #expect(harness.log.all.contains("served: cancelled"))
-        #expect(harness.log.all.contains("stopped:a"))   // dispose still ran
+        #expect(harness.log.all.contains("stopped:a"))  // dispose still ran
         #expect(harness.log.events.contains("cancelling: signal 2"))
     }
 
@@ -73,10 +78,10 @@ struct StoppingTests {
                 harness.send(SIGTERM)
                 await log.wait(for: "event: shutting down: signal 15")
                 harness.send(SIGTERM)
-                await log.wait(for: "stop:a")         // cancelled; dispose is stuck on the gate
+                await log.wait(for: "stop:a")  // cancelled; dispose is stuck on the gate
                 harness.send(SIGTERM)
                 await log.wait(for: "terminate: 15")
-                gate.open()                            // the fake terminate does not end the test process
+                gate.open()  // the fake terminate does not end the test process
             }
         ) {
             probe("a", log, stopGate: gate)
@@ -109,18 +114,21 @@ struct StoppingTests {
         let outcome = try result.get()
         #expect(outcome.shutdownReason == .serveReturned)
         #expect(outcome.cancellationReason == .signal(SIGTERM))
-        #expect(log.events == [
-            "started", "ready", "shutting down: serve returned",
-            "signal 15", "cancelling: signal 15",
-            "signal 15",
-            "stopped",
-        ])
+        #expect(
+            log.events == [
+                "started", "ready", "shutting down: serve returned",
+                "signal 15", "cancelling: signal 15",
+                "signal 15",
+                "stopped",
+            ])
     }
 
     @Test("signals are taken over before acquire and released after dispose")
     func signalWindow() async throws {
         let harness = Harness()
-        _ = try await run(harness, shutdownSignals: [SIGTERM, SIGINT], serve: .finish) { probe("a", harness.log) }
+        _ = try await run(harness, shutdownSignals: [SIGTERM, SIGINT], serve: .finish) {
+            probe("a", harness.log)
+        }
         let all = harness.log.all
         let taken = try #require(all.firstIndex(of: "signals taken: [15, 2]"))
         let ended = try #require(all.firstIndex(of: "signals ended"))
@@ -133,7 +141,8 @@ struct StoppingTests {
     func callerCancelled() async throws {
         let log = Recorder()
         let result = try await withDeadline {
-            await withTaskGroup(of: Result<ServiceOutcome, ServiceError<TestError>>?.self) { group in
+            typealias Run = Result<ServiceOutcome, ServiceError<TestError>>
+            return await withTaskGroup(of: Run?.self) { group in
                 group.addTask {
                     let withService = Service(probe("a", log)) { events in
                         for await event in events { log.append("event: \(describe(event))") }

@@ -51,7 +51,9 @@ final class Gate: Sendable {
     @discardableResult
     func remove(_ id: UInt64) -> Callback? {
         state.withLock { state in
-            state.callbacks.firstIndex { $0.id == id }.map { state.callbacks.remove(at: $0).callback }
+            state.callbacks.firstIndex { $0.id == id }.map {
+                state.callbacks.remove(at: $0).callback
+            }
         }
     }
 

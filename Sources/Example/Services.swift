@@ -84,7 +84,10 @@ func withDependencies() -> BracketAsync<(Database, Server), ExampleError> {
 
 // readme:begin job
 /// Does a fixed amount of work, then returns — which stops the service.
-func importBatches(_ resources: (Database, Server), _: Shutdown) async -> Result<Void, ExampleError> {
+func importBatches(
+    _ resources: (Database, Server),
+    _: Shutdown
+) async -> Result<Void, ExampleError> {
     for batch in 1...3 {
         try? await Task.sleep(for: .seconds(1))
         print("imported batch \(batch)")
@@ -95,7 +98,9 @@ func importBatches(_ resources: (Database, Server), _: Shutdown) async -> Result
 
 // readme:begin requests
 /// Handles requests until shutdown is requested, then stops and returns.
-func handleRequests(_ resources: (Database, Server), _ shutdown: Shutdown) async -> Result<Void, ExampleError> {
+func handleRequests(_ resources: (Database, Server), _ shutdown: Shutdown) async -> Result<
+    Void, ExampleError
+> {
     await withCancellation(on: shutdown, work)
 }
 
@@ -114,7 +119,9 @@ func work() async -> Result<Void, ExampleError> {
 
 // readme:begin drain
 /// Lets the server finish the request in flight instead of cancelling it.
-func drainRequests(_ resources: (Database, Server), _ shutdown: Shutdown) async -> Result<Void, ExampleError> {
+func drainRequests(_ resources: (Database, Server), _ shutdown: Shutdown) async -> Result<
+    Void, ExampleError
+> {
     let (_, server) = resources
     return await withShutdownHandler(on: shutdown, server.beginGracefulShutdown) {
         await server.run()

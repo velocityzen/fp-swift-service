@@ -42,7 +42,10 @@ struct Events: AsyncParsableCommand {
 
     func run() async throws {
         // readme:begin events
-        let withService = Service(withDependencies(), shutdownSignals: [SIGINT, SIGTERM]) { events in
+        let withService = Service(
+            withDependencies(),
+            shutdownSignals: [SIGINT, SIGTERM]
+        ) { events in
             for await event in events {
                 switch event {
                     case .success(let event): print("event: \(event)")

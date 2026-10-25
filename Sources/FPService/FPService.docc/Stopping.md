@@ -21,7 +21,9 @@ A body that runs until it is told to stop gets ``Shutdown`` as its second argume
 <!-- example: requests -->
 ```swift
 /// Handles requests until shutdown is requested, then stops and returns.
-func handleRequests(_ resources: (Database, Server), _ shutdown: Shutdown) async -> Result<Void, ExampleError> {
+func handleRequests(_ resources: (Database, Server), _ shutdown: Shutdown) async -> Result<
+    Void, ExampleError
+> {
     await withCancellation(on: shutdown, work)
 }
 
@@ -86,7 +88,9 @@ final class Server: Sendable {
 <!-- example: drain -->
 ```swift
 /// Lets the server finish the request in flight instead of cancelling it.
-func drainRequests(_ resources: (Database, Server), _ shutdown: Shutdown) async -> Result<Void, ExampleError> {
+func drainRequests(_ resources: (Database, Server), _ shutdown: Shutdown) async -> Result<
+    Void, ExampleError
+> {
     let (_, server) = resources
     return await withShutdownHandler(on: shutdown, server.beginGracefulShutdown) {
         await server.run()

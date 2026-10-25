@@ -171,7 +171,8 @@ final class ServiceRun<Failure: Error>: Sendable {
         let state = state.withLock { $0 }
         if let error = state.startFailure { return .failure(.startFailed(error)) }
         switch (state.serveFailure, state.stopFailure) {
-            case (let serve?, let stop?): return .failure(.serveAndStopFailed(serve: serve, stop: stop))
+            case (let serve?, let stop?):
+                return .failure(.serveAndStopFailed(serve: serve, stop: stop))
             case (let serve?, nil): return .failure(.serveFailed(serve))
             default: break
         }

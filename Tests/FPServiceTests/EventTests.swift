@@ -26,14 +26,19 @@ struct EventTests {
             probe("a", harness.log)
         }
 
-        #expect(harness.log.events == [
-            "started", "ready",
-            "signal 15", "shutting down: signal 15",
-            "signal 15", "cancelling: signal 15",
-            "stopped",
-        ])
+        #expect(
+            harness.log.events == [
+                "started", "ready",
+                "signal 15", "shutting down: signal 15",
+                "signal 15", "cancelling: signal 15",
+                "stopped",
+            ])
         let outcome = try result.get()
-        #expect(outcome == ServiceOutcome(shutdownReason: .signal(SIGTERM), cancellationReason: .signal(SIGTERM), stopDuration: outcome.stopDuration))
+        #expect(
+            outcome
+                == ServiceOutcome(
+                    shutdownReason: .signal(SIGTERM), cancellationReason: .signal(SIGTERM),
+                    stopDuration: outcome.stopDuration))
     }
 
     @Test("the stream finishes by itself, before the call returns")
@@ -49,13 +54,18 @@ struct EventTests {
     func failureEvent() async throws {
         let harness = Harness()
         _ = try await run(harness, serve: .fail) { probe("a", harness.log) }
-        #expect(harness.log.events == ["started", "ready", "failed: serve", "shutting down: serve returned", "stopped"])
+        #expect(
+            harness.log.events == [
+                "started", "ready", "failed: serve", "shutting down: serve returned", "stopped",
+            ])
     }
 
     @Test("without an observer the service runs the same")
     func noObserver() async throws {
         let harness = Harness()
-        let result = try await run(harness, observe: false, serve: .finish) { probe("a", harness.log) }
+        let result = try await run(harness, observe: false, serve: .finish) {
+            probe("a", harness.log)
+        }
         #expect(try result.get().shutdownReason == .serveReturned)
         #expect(harness.log.events.isEmpty)
     }
