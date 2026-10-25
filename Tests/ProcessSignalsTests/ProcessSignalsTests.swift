@@ -128,3 +128,20 @@ private func disposition(_ signal: Int32) -> UInt {
 private func handlerBits(_ handler: (@convention(c) (Int32) -> Void)?) -> UInt {
     unsafeBitCast(handler, to: UInt.self)
 }
+
+@Suite("signalName")
+struct SignalNameTests {
+    @Test("names the common signals by the platform's own constants")
+    func names() {
+        #expect(signalName(SIGTERM) == "SIGTERM")
+        #expect(signalName(SIGINT) == "SIGINT")
+        #expect(signalName(SIGHUP) == "SIGHUP")
+        #expect(signalName(SIGUSR1) == "SIGUSR1")
+        #expect(signalName(SIGWINCH) == "SIGWINCH")
+    }
+
+    @Test("falls back to the number for an unknown signal")
+    func unknown() {
+        #expect(signalName(1234) == "signal 1234")
+    }
+}

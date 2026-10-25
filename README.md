@@ -318,7 +318,9 @@ A separate product with no package dependencies: process signals as an `AsyncStr
 ```swift
 import ProcessSignals
 
-for await signal in await processSignals([SIGTERM, SIGINT]) { … }
+for await signal in await processSignals([SIGTERM, SIGINT]) {
+    print(signalName(signal))   // "SIGTERM"
+}
 ```
 
 - **Startup:** `processSignals` returns once every source is registered, so a signal sent right after the call is not missed.
@@ -326,3 +328,5 @@ for await signal in await processSignals([SIGTERM, SIGINT]) { … }
 - **While the stream lives:** the signals' default actions are off.
 - **Ending the stream:** cancelling the task that iterates it ends it. That cancels the sources and restores the previous dispositions. Breaking out of the loop does not end the stream while it is still referenced.
 - **No extra thread:** Dispatch delivers signals without a thread of our own.
+- **Reference:** the [Signal Reference](https://swiftpackageindex.com/velocityzen/fp-swift-service/documentation/processsignals/signalreference) explains what each signal means, its default action, and which ones to take over.
+- **Names:** `signalName(_:)` gives a signal's conventional name, such as `"SIGTERM"`, or `"signal N"` for an unknown number. It matches against the platform's own constants, because the numbers differ between platforms.
