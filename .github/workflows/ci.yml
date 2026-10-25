@@ -4,23 +4,97 @@ on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  macos:
-    runs-on: macos-15
+  lint:
+    name: Lint
+    runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install swift-format and SwiftLint
+        run: brew install swift-format swiftlint
+
+      - name: Show tool versions
+        run: |
+          swift-format --version
+          swiftlint --version
+
+      - name: swift-format (lint mode, strict)
+        run: swift-format lint --recursive --strict --configuration .swift-format Sources Tests
+
+      - name: SwiftLint (strict)
+        run: swiftlint --strict
+
+  macos:
+    name: Test macOS
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Resolve dependencies
+        run: swift package resolve
+
       - name: Build
-        run: swift build
+        run: swift build -v
+
       - name: Test
         run: swift test
 
-  linux:
-    runs-on: ubuntu-latest
-    container: swift:6.3
+  simulators:
+    name: Test ${{ matrix.platform }} Simulator
+    runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: iOS
+            device-filter: iPhone
+          - platform: tvOS
+            device-filter: Apple TV
+          - platform: watchOS
+            device-filter: Apple Watch
+          - platform: visionOS
+            device-filter: Apple Vision
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Test (${{ matrix.platform }} Simulator)
+        run: |
+          set -o pipefail
+          LINE=$(xcrun simctl list devices available | grep -m1 "${{ matrix.device-filter }}")
+          UDID=$(echo "$LINE" | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}')
+          echo "Using simulator: $LINE"
+          xcodebuild test -scheme fp-swift-bracket -destination "id=$UDID,arch=arm64" | tail -60
+
+  linux:
+    name: Test Linux
+    runs-on: ubuntu-latest
+    container:
+      image: swift:6.2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Resolve dependencies
+        run: swift package resolve
+
       - name: Build
-        run: swift build
+        run: swift build -v
+
       - name: Test
         run: swift test
