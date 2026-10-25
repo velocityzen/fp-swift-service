@@ -3,8 +3,7 @@ import FPService
 import Synchronization
 
 // The README's example services. Code between `readme:begin` and
-// `readme:end` is copied verbatim into README.md and checked by
-// `scripts/check-readme.py`.
+// `readme:end` is shown verbatim in README.md and the DocC articles.
 //
 // These are top-level functions, so they are not on the main actor:
 // `Service` takes the bracket as `sending`, and closures written on the main

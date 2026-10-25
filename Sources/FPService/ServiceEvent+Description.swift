@@ -13,6 +13,7 @@ extension ServiceEvent: CustomStringConvertible {
 }
 
 extension ShutdownReason: CustomStringConvertible {
+    /// A short phrase for logs, e.g. `signal 15`.
     public var description: String {
         switch self {
             case .serveReturned: "serve returned"
@@ -22,6 +23,7 @@ extension ShutdownReason: CustomStringConvertible {
 }
 
 extension CancellationReason: CustomStringConvertible {
+    /// A short phrase for logs, e.g. `shutdown took longer than 10.0 seconds`.
     public var description: String {
         switch self {
             case .signal(let signal): "signal \(signal)"

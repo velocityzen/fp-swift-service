@@ -7,8 +7,8 @@ import ArgumentParser
 import FPService
 
 /// The README's walkthrough as a runnable CLI: one subcommand per step.
-/// Code between `readme:begin` and `readme:end` is copied verbatim into
-/// README.md and checked by `scripts/check-readme.py`.
+/// Code between `readme:begin` and `readme:end` is shown verbatim in
+/// README.md and the DocC articles.
 @main
 struct Example: AsyncParsableCommand {
     static let configuration = CommandConfiguration(

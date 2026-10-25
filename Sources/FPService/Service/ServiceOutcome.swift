@@ -12,6 +12,7 @@ public struct ServiceOutcome: Sendable, Equatable {
     /// ``ServiceClock``; `nil` if `serve` never ran.
     public let stopDuration: Duration?
 
+    /// Creates an outcome; ``Service`` builds them, tests compare against them.
     public init(
         shutdownReason: ShutdownReason?,
         cancellationReason: CancellationReason?,

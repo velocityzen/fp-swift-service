@@ -1,8 +1,27 @@
 # fp-swift-service
 
+[![Swift](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fvelocityzen%2Ffp-swift-service%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/velocityzen/fp-swift-service)
+[![Platforms](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fvelocityzen%2Ffp-swift-service%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/velocityzen/fp-swift-service)
+[![Documentation](https://img.shields.io/badge/documentation-DocC-purple)](https://swiftpackageindex.com/velocityzen/fp-swift-service/documentation/fpservice)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 A functional service lifecycle for Swift, in the [fp-swift](https://github.com/velocityzen/fp-swift) style. A service is a `BracketAsync`, you compose services with do-notation, and running them returns a `Result`. Nothing throws.
 
-The walkthrough below is `Sources/Example`, a CLI with one subcommand per step: `swift run Example <step>`. Its code blocks are copied from the example, and `scripts/check-readme.py` checks that the two stay identical. The Reference and ProcessSignals sections show API outlines. `SPEC.md` is the source of truth for the behaviour.
+The walkthrough below is `Sources/Example`, a CLI with one subcommand per step: `swift run Example <step>`. Its code blocks are copied from the example. The Reference and ProcessSignals sections show API outlines.
+
+## Installation
+
+Add to your `Package.swift`:
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/velocityzen/fp-swift-service", branch: "main")
+]
+```
+
+Then add `FPService` to your target's dependencies. `ProcessSignals` is a separate product, if you only need the signal stream.
+
+Documentation: [FPService](https://swiftpackageindex.com/velocityzen/fp-swift-service/documentation/fpservice), [ProcessSignals](https://swiftpackageindex.com/velocityzen/fp-swift-service/documentation/processsignals).
 
 ## Quick start
 

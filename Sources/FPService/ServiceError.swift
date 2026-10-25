@@ -44,6 +44,8 @@ public indirect enum ServiceError<Failure: Error>: Error, CustomStringConvertibl
         }
     }
 
+    /// A sentence describing the failure, with the service's own error.
+    /// Same meaning as `LocalizedError.errorDescription`.
     public var errorDescription: String? {
         switch self {
             case .startFailed(let error): "Service failed to start: \(error)"
@@ -55,12 +57,16 @@ public indirect enum ServiceError<Failure: Error>: Error, CustomStringConvertibl
         }
     }
 
+    /// The same as ``errorDescription``.
     public var description: String { errorDescription ?? "ServiceError" }
 }
 
 /// The three phases of a service.
 public enum ServicePhase: String, Sendable, Equatable {
+    /// The bracket's acquire.
     case start
+    /// The service body, `serve`.
     case serve
+    /// The bracket's dispose.
     case stop
 }
