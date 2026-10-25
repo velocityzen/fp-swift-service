@@ -1,7 +1,7 @@
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #endif
 import ProcessSignals
 import Testing
@@ -119,9 +119,9 @@ private func disposition(_ signal: Int32) -> UInt {
     var current = sigaction()
     sigaction(signal, nil, &current)
     #if canImport(Darwin)
-    return handlerBits(current.__sigaction_u.__sa_handler)
+        return handlerBits(current.__sigaction_u.__sa_handler)
     #else
-    return handlerBits(current.__sigaction_handler.sa_handler)
+        return handlerBits(current.__sigaction_handler.sa_handler)
     #endif
 }
 

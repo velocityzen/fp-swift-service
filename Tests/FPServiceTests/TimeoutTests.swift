@@ -1,7 +1,7 @@
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #endif
 import FPBracket
 @testable import FPService
@@ -38,7 +38,8 @@ struct TimeoutTests {
             harness.log.events == [
                 "started", "ready", "signal 15", "shutting down: signal 15",
                 "cancelling: shutdown timeout", "failed: shutdown timeout", "stopped",
-            ])
+            ]
+        )
         #expect(harness.log.all.contains("stopped:a"))
     }
 
@@ -92,7 +93,10 @@ struct TimeoutTests {
         #expect(
             try result.get()
                 == ServiceOutcome(
-                    shutdownReason: .serveReturned, cancellationReason: nil,
-                    stopDuration: .seconds(3)))
+                    shutdownReason: .serveReturned,
+                    cancellationReason: nil,
+                    stopDuration: .seconds(3)
+                )
+        )
     }
 }

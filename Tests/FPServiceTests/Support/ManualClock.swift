@@ -43,7 +43,8 @@ final class ManualClock: Clock, Sendable {
                     if deadline <= state.now { return true }
                     if Task.isCancelled { return false }
                     state.sleepers.append(
-                        Sleeper(id: id, deadline: deadline, continuation: continuation))
+                        Sleeper(id: id, deadline: deadline, continuation: continuation)
+                    )
                     return nil
                 }
                 switch immediate {

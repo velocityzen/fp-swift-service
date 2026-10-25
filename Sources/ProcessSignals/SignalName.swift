@@ -1,9 +1,9 @@
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #elseif canImport(Musl)
-import Musl
+    import Musl
 #endif
 
 /// The conventional name of a signal, e.g. `"SIGTERM"`; `"signal N"` for a
@@ -55,16 +55,16 @@ public func signalName(_ signal: Int32) -> String {
 /// Signals only one platform has.
 private func platformSignalName(_ signal: Int32) -> String? {
     #if canImport(Darwin)
-    switch signal {
-        case SIGINFO: "SIGINFO"
-        case SIGEMT: "SIGEMT"
-        default: nil
-    }
+        switch signal {
+            case SIGINFO: "SIGINFO"
+            case SIGEMT: "SIGEMT"
+            default: nil
+        }
     #else
-    switch signal {
-        case SIGPWR: "SIGPWR"
-        case SIGSTKFLT: "SIGSTKFLT"
-        default: nil
-    }
+        switch signal {
+            case SIGPWR: "SIGPWR"
+            case SIGSTKFLT: "SIGSTKFLT"
+            default: nil
+        }
     #endif
 }

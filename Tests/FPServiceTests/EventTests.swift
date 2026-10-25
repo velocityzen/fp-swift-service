@@ -1,7 +1,7 @@
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #endif
 import FPBracket
 @testable import FPService
@@ -32,13 +32,17 @@ struct EventTests {
                 "signal 15", "shutting down: signal 15",
                 "signal 15", "cancelling: signal 15",
                 "stopped",
-            ])
+            ]
+        )
         let outcome = try result.get()
         #expect(
             outcome
                 == ServiceOutcome(
-                    shutdownReason: .signal(SIGTERM), cancellationReason: .signal(SIGTERM),
-                    stopDuration: outcome.stopDuration))
+                    shutdownReason: .signal(SIGTERM),
+                    cancellationReason: .signal(SIGTERM),
+                    stopDuration: outcome.stopDuration
+                )
+        )
     }
 
     @Test("the stream finishes by itself, before the call returns")
@@ -57,7 +61,8 @@ struct EventTests {
         #expect(
             harness.log.events == [
                 "started", "ready", "failed: serve", "shutting down: serve returned", "stopped",
-            ])
+            ]
+        )
     }
 
     @Test("without an observer the service runs the same")

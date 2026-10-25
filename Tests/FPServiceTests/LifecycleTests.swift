@@ -1,7 +1,7 @@
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #endif
 import FPBracket
 @testable import FPService
@@ -60,7 +60,10 @@ struct LifecycleTests {
     func defaultServe() async throws {
         let harness = Harness()
         let result = try await run(
-            harness, serve: nil, waitingFor: ["event: ready"], then: { harness.send(SIGTERM) }
+            harness,
+            serve: nil,
+            waitingFor: ["event: ready"],
+            then: { harness.send(SIGTERM) }
         ) {
             probe("a", harness.log)
         }
@@ -116,7 +119,9 @@ struct LifecycleTests {
         let result = try await withDeadline {
             let withService = Service(
                 BracketAsync<Int, any Error>.throwing(
-                    acquire: { throw TestError.boom("thrown") }, dispose: { _ in })
+                    acquire: { throw TestError.boom("thrown") },
+                    dispose: { _ in }
+                )
             )
             return await withService()
         }

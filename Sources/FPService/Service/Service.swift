@@ -1,9 +1,9 @@
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #elseif canImport(Musl)
-import Musl
+    import Musl
 #endif
 import FPBracket
 import ProcessSignals
@@ -101,11 +101,8 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
     ///   finished, the signal dispositions are restored and the observer has
     ///   returned.
     public consuming func callAsFunction(
-        _ serve: sending @escaping (Resource, Shutdown) async -> Result<Void, Failure> = {
-            _, shutdown in
-            await shutdown.requested
-            return .success(())
-        }
+        _ serve: sending @escaping (Resource, Shutdown) async -> Result<Void, Failure> =
+            waitForShutdown
     ) async -> Result<ServiceOutcome, ServiceError<Failure>> {
         // Sound: `init` took both as `sending` (disconnected from the
         // caller), and this ~Copyable value is consumed by the call, so
@@ -119,7 +116,10 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
             (events, continuation) = ServiceEvents<Failure>.makeStream()
         }
         let run = ServiceRun<Failure>(
-            clock: clock, continuation: continuation, terminate: terminate)
+            clock: clock,
+            continuation: continuation,
+            terminate: terminate
+        )
         let timeout = shutdownTimeout
 
         async let observed: Void = runObserver(observe, events)
@@ -135,14 +135,25 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
     }
 }
 
+/// The default `serve`: stays up until shutdown is requested.
+@usableFromInline
+@Sendable
+func waitForShutdown<Resource, Failure: Error>(
+    _: Resource,
+    _ shutdown: Shutdown
+) async -> Result<Void, Failure> {
+    await shutdown.requested
+    return .success(())
+}
+
 /// Stage 3: restore the signal's default action and re-send it.
 @Sendable
 private func terminateProcess(_ signal: Int32) {
     var action = sigaction()
     #if canImport(Darwin)
-    action.__sigaction_u.__sa_handler = SIG_DFL
+        action.__sigaction_u.__sa_handler = SIG_DFL
     #else
-    action.__sigaction_handler.sa_handler = SIG_DFL
+        action.__sigaction_handler.sa_handler = SIG_DFL
     #endif
     sigaction(signal, &action, nil)
     raise(signal)

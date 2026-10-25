@@ -1,7 +1,7 @@
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #endif
 import FPBracket
 @testable import FPService
@@ -19,7 +19,8 @@ struct StoppingTests {
         let all = harness.log.all
         #expect(all.firstIndex(of: "handler")! < all.firstIndex(of: "stop:a")!)
         #expect(
-            harness.log.events == ["started", "ready", "shutting down: serve returned", "stopped"])
+            harness.log.events == ["started", "ready", "shutting down: serve returned", "stopped"]
+        )
     }
 
     @Test("the first signal starts the graceful stage")
@@ -120,7 +121,8 @@ struct StoppingTests {
                 "signal 15", "cancelling: signal 15",
                 "signal 15",
                 "stopped",
-            ])
+            ]
+        )
     }
 
     @Test("signals are taken over before acquire and released after dispose")

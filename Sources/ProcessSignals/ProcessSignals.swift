@@ -1,9 +1,9 @@
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #elseif canImport(Musl)
-import Musl
+    import Musl
 #endif
 import Dispatch
 
@@ -70,7 +70,7 @@ private let signalQueue = DispatchQueue(label: "ProcessSignals")
 private struct Disposition: @unchecked Sendable {
     let signal: Int32
     #if canImport(Darwin)
-    let action: sigaction
+        let action: sigaction
     #endif
 
     /// On Darwin, sets `SIG_IGN` so the default action never runs while
@@ -78,20 +78,20 @@ private struct Disposition: @unchecked Sendable {
     /// libdispatch manages the signal itself, so nothing changes.
     static func ignore(_ signal: Int32) -> Disposition {
         #if canImport(Darwin)
-        var ignore = sigaction()
-        ignore.__sigaction_u.__sa_handler = SIG_IGN
-        var previous = sigaction()
-        sigaction(signal, &ignore, &previous)
-        return Disposition(signal: signal, action: previous)
+            var ignore = sigaction()
+            ignore.__sigaction_u.__sa_handler = SIG_IGN
+            var previous = sigaction()
+            sigaction(signal, &ignore, &previous)
+            return Disposition(signal: signal, action: previous)
         #else
-        return Disposition(signal: signal)
+            return Disposition(signal: signal)
         #endif
     }
 
     func restore() {
         #if canImport(Darwin)
-        var action = action
-        sigaction(signal, &action, nil)
+            var action = action
+            sigaction(signal, &action, nil)
         #endif
     }
 }
