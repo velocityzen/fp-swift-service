@@ -169,7 +169,20 @@ jobs:
         run: swift build -v
 
       - name: Test
-        run: swift test
+        run: swift test --enable-code-coverage
+
+      # The Linux signal code only builds here, so this is the only coverage
+      # of it. Printed to the log and the job summary, with no threshold.
+      - name: Coverage
+        run: |
+          bin="$(swift build --show-bin-path)"
+          profdata="$(dirname "$(swift test --show-codecov-path)")/default.profdata"
+          objects="$(find "$bin" -maxdepth 1 -type f -name '*.xctest' -printf '-object=%p ')"
+          test -n "$objects"
+          report="$(llvm-cov report $objects -instr-profile="$profdata" -ignore-filename-regex='/(\.build|Tests)/')"
+          echo "$report"
+          printf '### Coverage: Linux %s, Swift %s\n\n```\n%s\n```\n' \
+            "${{ matrix.arch }}" "${{ matrix.swift }}" "$report" >> "$GITHUB_STEP_SUMMARY"
 
   musl:
     name: Build static Linux (Musl)
@@ -207,3 +220,24 @@ jobs:
       # tests cannot be built for Musl, this is where the Musl code runs.
       - name: Run the static Example
         run: timeout 60 "$(swift build --swift-sdk x86_64-swift-linux-musl --show-bin-path)/Example" job
+
+      # `job` ends by itself; `requests` runs until a signal, so this is what
+      # runs Musl's signal handler and pipe. SIGTERM is sent once the process
+      # catches it (bit 15 of SigCgt): sent earlier, it would end the process
+      # by its default action.
+      - name: Stop the static Example with SIGTERM
+        timeout-minutes: 2
+        run: |
+          "$(swift build --swift-sdk x86_64-swift-linux-musl --show-bin-path)/Example" requests > requests.log &
+          pid=$!
+          trap 'cat requests.log' EXIT
+          caught() { awk '/^SigCgt:/ { print substr($2, 9) }' "/proc/$pid/status"; }
+          for _ in $(seq 100); do
+            [ $(( 0x$(caught) & 0x4000 )) -ne 0 ] && break
+            sleep 0.1
+          done
+          kill -TERM "$pid"
+          status=0
+          wait "$pid" || status=$?
+          test "$status" -eq 0
+          grep -q '^outcome: SIGTERM' requests.log

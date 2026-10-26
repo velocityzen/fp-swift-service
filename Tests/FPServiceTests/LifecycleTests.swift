@@ -22,12 +22,37 @@ struct LifecycleTests {
         #expect(outcome.shutdownReason == .serveReturned)
         #expect(outcome.cancellationReason == nil)
         #expect(outcome.stopDuration != nil)
+        #expect(outcome.shutdownDuration != nil)
         let log = harness.log
         #expect(log.with(prefix: "start:") == ["start:a", "start:b", "start:c"])
         #expect(log.with(prefix: "stop:") == ["stop:c", "stop:b", "stop:a"])
         let all = log.all
         #expect(all.firstIndex(of: "serve")! > all.firstIndex(of: "start:c")!)
         #expect(all.firstIndex(of: "served")! < all.firstIndex(of: "stop:c")!)
+    }
+
+    @Test("the shutdown duration runs from stage 1, the stop duration from serve returning")
+    func durations() async throws {
+        let harness = Harness()
+        let clock = ManualClock()
+        let drained = Latch()
+        let result = try await run(
+            harness,
+            clock: ServiceClock(clock),
+            serve: .drain(drained),
+            waitingFor: ["serve"],
+            then: {
+                harness.send(SIGTERM)
+                await harness.log.wait(for: "event: shutting down: signal 15")
+                clock.advance(by: .seconds(2))  // serve finishes its work
+                drained.open()
+            },
+            service: { probe("a", harness.log) }
+        )
+
+        let outcome = try result.get()
+        #expect(outcome.shutdownDuration == .seconds(2))
+        #expect(outcome.stopDuration == .zero)
     }
 
     @Test("a dependent receives its dependency's resource")

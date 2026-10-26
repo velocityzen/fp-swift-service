@@ -42,7 +42,8 @@ struct EventTests {
                 == ServiceOutcome(
                     shutdownReason: .signal(SIGTERM),
                     cancellationReason: .signal(SIGTERM),
-                    stopDuration: outcome.stopDuration
+                    stopDuration: outcome.stopDuration,
+                    shutdownDuration: outcome.shutdownDuration
                 )
         )
     }

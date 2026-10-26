@@ -25,8 +25,8 @@ extension ServiceRun {
         case served(Result<Void, Failure>, cancelled: Bool, at: Duration)
         /// The bracket call returned, at `at` on the run's clock.
         case finished(Result<Void, Failure>, at: Duration)
-        /// A shutdown signal arrived.
-        case signal(Int32)
+        /// A shutdown signal arrived, at `at` on the run's clock.
+        case signal(Int32, at: Duration)
         /// Stage 2 for a reason other than a signal (deadline, caller).
         case cancel(CancellationReason)
     }
@@ -61,6 +61,7 @@ extension ServiceRun {
         var serveFailure: Failure?
         var stopFailure: Failure?
         var timedOut: Duration?
+        var shutdownBegan: Duration?
         var stopBegan: Duration?
         var stopEnded: Duration?
 
@@ -80,8 +81,8 @@ extension ServiceRun {
                     return serveReturned(served, cancelled: cancelled, at: now)
                 case .finished(let result, let now):
                     return bracketReturned(result, at: now)
-                case .signal(let signal):
-                    return signalArrived(signal)
+                case .signal(let signal, let now):
+                    return signalArrived(signal, at: now)
                 case .cancel(let reason):
                     return beginCancel(reason, after: [])
             }
@@ -100,7 +101,7 @@ extension ServiceRun {
             }
             // Cancellation never turns into a graceful request.
             guard !cancelled else { return Step(events: events) }
-            return beginGraceful(.serveReturned, after: events)
+            return beginGraceful(.serveReturned, at: now, after: events)
         }
 
         /// Acquire's failure before `ready`, dispose's after.
@@ -121,11 +122,11 @@ extension ServiceRun {
 
         /// One stage forward from where the run is. Once the bracket has
         /// returned there is nothing left to stop, so it is only an event.
-        private mutating func signalArrived(_ signal: Int32) -> Step {
+        private mutating func signalArrived(_ signal: Int32, at now: Duration) -> Step {
             let events: [Event] = [.success(.signal(signal))]
             guard !finished else { return Step(events: events) }
             switch stage {
-                case .running: return beginGraceful(.signal(signal), after: events)
+                case .running: return beginGraceful(.signal(signal), at: now, after: events)
                 case .graceful: return beginCancel(.signal(signal), after: events)
                 case .cancelling: return Step(events: events, effect: .kill(signal))
             }
@@ -133,11 +134,13 @@ extension ServiceRun {
 
         private mutating func beginGraceful(
             _ reason: ShutdownReason,
+            at now: Duration,
             after events: [Event]
         ) -> Step {
             guard stage == .running else { return Step(events: events) }
             stage = .graceful
             shutdownReason = reason
+            shutdownBegan = now
             return Step(events: events + [.success(.shuttingDown(reason))], effect: .graceful)
         }
 
@@ -188,15 +191,18 @@ extension ServiceRun {
         }
 
         var outcome: ServiceOutcome {
-            var stopDuration: Duration?
-            if let began = stopBegan, let ended = stopEnded {
-                stopDuration = ended - began
-            }
-            return ServiceOutcome(
+            ServiceOutcome(
                 shutdownReason: shutdownReason,
                 cancellationReason: cancellationReason,
-                stopDuration: stopDuration
+                stopDuration: elapsed(since: stopBegan),
+                shutdownDuration: elapsed(since: shutdownBegan)
             )
+        }
+
+        /// From `began` to the end of dispose, if both happened.
+        private func elapsed(since began: Duration?) -> Duration? {
+            guard let began, let stopEnded else { return nil }
+            return stopEnded - began
         }
     }
 }

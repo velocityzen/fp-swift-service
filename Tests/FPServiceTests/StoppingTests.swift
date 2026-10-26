@@ -240,6 +240,7 @@ struct StoppingTests {
 
         let outcome = try #require(result).get()
         #expect(outcome.shutdownReason == nil)
+        #expect(outcome.shutdownDuration == nil)
         #expect(outcome.cancellationReason == .caller)
         #expect(log.all.contains("shutdown requested: false"))
         #expect(log.all.contains("stopped:a"))

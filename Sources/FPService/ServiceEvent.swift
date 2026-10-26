@@ -17,7 +17,8 @@ public enum ServiceEvent: Sendable, Equatable {
     case shuttingDown(ShutdownReason)
     /// Stage 2 began: the service is being cancelled.
     case cancelling(CancellationReason)
-    /// Dispose finished. Always the last event of a service that started.
+    /// Dispose finished: the last event of a service that started. An
+    /// observer cancelled with the calling task may miss it.
     case stopped(ServiceOutcome)
 }
 

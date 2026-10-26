@@ -28,6 +28,21 @@ struct StepTests {
         #expect(row.state.result == row.result)
     }
 
+    @Test("stage 1 records when it began, from a signal or from serve returning")
+    func shutdownBegan() {
+        var signalled = Run.State()
+        _ = signalled.step(.signal(SIGTERM, at: .seconds(2)))
+        #expect(signalled.shutdownBegan == .seconds(2))
+
+        var returned = Run.State(ready: true)
+        _ = returned.step(.served(.success(()), cancelled: false, at: .seconds(3)))
+        #expect(returned.shutdownBegan == .seconds(3))
+
+        var cancelled = Run.State(ready: true)
+        _ = cancelled.step(.served(.success(()), cancelled: true, at: .seconds(3)))
+        #expect(cancelled.shutdownBegan == nil)
+    }
+
     @Test("only a service that started ends with stopped")
     func lastEvent() {
         #expect(Run.State().lastEvent.map(describe) == "stopped")
@@ -45,7 +60,7 @@ private let steps: [StepRow] = [
     StepRow(
         "a signal while running begins stage 1",
         running,
-        .signal(SIGTERM),
+        .signal(SIGTERM, at: .zero),
         events: ["signal 15", "shutting down: signal 15"],
         effect: .graceful,
         stage: .graceful
@@ -53,7 +68,7 @@ private let steps: [StepRow] = [
     StepRow(
         "a signal in stage 1 begins stage 2",
         graceful,
-        .signal(SIGINT),
+        .signal(SIGINT, at: .zero),
         events: ["signal 2", "cancelling: signal 2"],
         effect: .cancel,
         stage: .cancelling
@@ -61,7 +76,7 @@ private let steps: [StepRow] = [
     StepRow(
         "a signal in stage 2 ends the process",
         cancelling,
-        .signal(SIGTERM),
+        .signal(SIGTERM, at: .zero),
         events: ["signal 15"],
         effect: .kill(SIGTERM),
         stage: .cancelling
@@ -69,7 +84,7 @@ private let steps: [StepRow] = [
     StepRow(
         "a signal after the bracket returned is only an event",
         returned,
-        .signal(SIGTERM),
+        .signal(SIGTERM, at: .zero),
         events: ["signal 15"],
         effect: .none,
         stage: .graceful
@@ -166,20 +181,22 @@ private let steps: [StepRow] = [
 
 private let results: [ResultRow] = [
     ResultRow(
-        "a clean run's outcome measures the stop",
+        "a clean run's outcome measures the shutdown and the stop",
         Run.State(
             stage: .graceful,
-            shutdownReason: .serveReturned,
+            shutdownReason: .signal(SIGTERM),
             ready: true,
             finished: true,
-            stopBegan: .seconds(1),
-            stopEnded: .seconds(3)
+            shutdownBegan: .seconds(1),
+            stopBegan: .seconds(2),
+            stopEnded: .seconds(4)
         ),
         .success(
             ServiceOutcome(
-                shutdownReason: .serveReturned,
+                shutdownReason: .signal(SIGTERM),
                 cancellationReason: nil,
-                stopDuration: .seconds(2)
+                stopDuration: .seconds(2),
+                shutdownDuration: .seconds(3)
             )
         )
     ),

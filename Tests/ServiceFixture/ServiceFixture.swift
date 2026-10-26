@@ -8,6 +8,7 @@
 import Dispatch
 import FPBracket
 import FPService
+import ProcessSignals
 
 /// The process the subprocess tests end: a service only stage 3 can stop.
 /// `serve` ignores the graceful request and dispose never returns, so it
@@ -17,15 +18,24 @@ import FPService
 /// With `stall`, a stdio stream is stuck writing to a pipe nobody reads, as
 /// when the process's output stalls: flushing every stream waits on it.
 ///
-/// Usage: `ServiceFixture <signal number> [stall]`
+/// With `nofile`, it instead runs a service with no file descriptor left,
+/// then another with them back, and prints how each ended: on Linux the
+/// signals need a pipe, made once per process, so this takes a process of
+/// its own.
+///
+/// Usage: `ServiceFixture <signal number> [stall]`, or `ServiceFixture nofile`
 @main
 enum ServiceFixture {
     static func main() async {
         let arguments = CommandLine.arguments
+        if arguments.dropFirst() == ["nofile"] {
+            await runOutOfFileDescriptors()
+            return
+        }
         guard let signal = arguments.dropFirst().first.flatMap({ Int32($0) }),
             arguments.count == 2 || (arguments.count == 3 && arguments[2] == "stall")
         else {
-            printLine("usage: ServiceFixture <signal number> [stall]")
+            printLine("usage: ServiceFixture <signal number> [stall] | nofile")
             exit(2)
         }
         if arguments.count == 3 { stallOutput() }
@@ -56,6 +66,62 @@ func stuck() -> BracketAsync<Void, Never> {
             return .success(())
         }
     )
+}
+
+/// Runs a service with no file descriptor left, then one with them back.
+/// Prints `first:` and `second:`, each run's result, and `SIGTERM:`, whether
+/// the failed run left the signal's disposition alone.
+func runOutOfFileDescriptors() async {
+    // Dispatch makes its event loop's descriptors on first use: let it,
+    // while there are some.
+    try? await Task.sleep(for: .milliseconds(1))
+
+    let original = useUpFileDescriptors()
+    printLine("first: \(await runIdle())")
+    printLine("SIGTERM: \(currentHandler(SIGTERM) == nil ? "default" : "changed")")
+
+    var limit = original
+    setrlimit(fileDescriptorLimit, &limit)
+    printLine("second: \(await runIdle())")
+}
+
+/// Lowers the soft limit on file descriptors to the lowest free one, so no
+/// new one can be made; returns the limits from before.
+func useUpFileDescriptors() -> rlimit {
+    var original = rlimit()
+    let lowest = dup(STDOUT_FILENO)  // a copy takes the lowest free descriptor
+    guard getrlimit(fileDescriptorLimit, &original) == 0, lowest >= 0 else {
+        printLine("nofile: no limit to lower")
+        exit(2)
+    }
+    close(lowest)
+    var limit = original
+    limit.rlim_cur = rlim_t(lowest)
+    guard setrlimit(fileDescriptorLimit, &limit) == 0 else {
+        printLine("nofile: the limit can't be lowered")
+        exit(2)
+    }
+    return original
+}
+
+#if canImport(Glibc)
+    /// glibc declares the resources as an enum, and takes them as `Int32`.
+    private let fileDescriptorLimit = Int32(RLIMIT_NOFILE.rawValue)
+#else
+    private let fileDescriptorLimit = RLIMIT_NOFILE
+#endif
+
+/// Runs a service that starts and stops at once, shut down by SIGTERM;
+/// returns `ran`, or why it failed.
+func runIdle() async -> String {
+    let withService = Service(
+        BracketAsync<Void, Never>(acquire: { .success(()) }, dispose: { _ in .success(()) }),
+        shutdownSignals: [SIGTERM]
+    )
+    switch await withService({ _, _ in .success(()) }) {
+        case .success: return "ran"
+        case .failure(let error): return "\(error)"
+    }
 }
 
 /// Leaves a stdio stream stuck in a flush to a pipe nobody reads, holding

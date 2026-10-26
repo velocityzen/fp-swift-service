@@ -146,7 +146,8 @@ struct TimeoutTests {
                 == ServiceOutcome(
                     shutdownReason: .serveReturned,
                     cancellationReason: nil,
-                    stopDuration: .seconds(3)
+                    stopDuration: .seconds(3),
+                    shutdownDuration: .seconds(3)
                 )
         )
     }

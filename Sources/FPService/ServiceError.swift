@@ -69,7 +69,7 @@ public enum ServiceError<Failure: Error>: Error, CustomStringConvertible {
             case .serveAndStopFailed(let serve, let stop):
                 "Service failed while serving: \(serve); then failed to stop: \(stop)"
             case .shutdownTimeout(let after, let serve, let stop):
-                "Service did not shut down within \(after) and was cancelled."
+                "Service did not shut down within \(format(after)) and was cancelled."
                     + (serve.map { " It had failed while serving: \($0)." } ?? "")
                     + (stop.map { " It failed to stop: \($0)." } ?? "")
         }

@@ -73,7 +73,7 @@ final class ServiceRun<Failure: Error>: Sendable {
     /// handlers, and one that blocks must not keep the next signal from
     /// being read.
     func receive(_ signal: Int32) -> Bool {
-        let effect = step(.signal(signal))
+        let effect = step(.signal(signal, at: clock.now()))
         guard effect == .graceful else {
             apply(effect)
             return false

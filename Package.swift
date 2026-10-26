@@ -32,11 +32,13 @@ let package = Package(
             ]
         ),
         // A service only stage 3 can stop, as a real process: the tests that
-        // end a process launch and signal it.
+        // end a process launch and signal it. Also runs a service with no
+        // file descriptor left, in a process of its own.
         .executableTarget(
             name: "ServiceFixture",
             dependencies: [
                 "FPService",
+                "ProcessSignals",
                 .product(name: "FPBracket", package: "fp-swift-bracket"),
             ],
             path: "Tests/ServiceFixture"

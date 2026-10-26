@@ -292,6 +292,7 @@ A `Service` value runs once; calling it twice doesn't compile. Brackets stay reu
 | `shutdownReason` | why the graceful shutdown began: `.serveReturned` or `.signal(n)`; `nil` if there was none (the caller cancelled while it was running) |
 | `cancellationReason` | `nil` if it stopped gracefully; otherwise why it was cancelled: `.signal(n)` or `.caller` |
 | `stopDuration` | from the end of the body to the end of dispose |
+| `shutdownDuration` | from the start of the graceful shutdown to the end of dispose, the span `shutdownTimeout` limits; for a signal it includes the work the body finishes before returning; `nil` if there was no graceful shutdown |
 
 ### Events
 
@@ -304,7 +305,7 @@ A `Service` value runs once; calling it twice doesn't compile. Brackets stay reu
 .success(.shuttingDown(.signal(SIGTERM)))
 .success(.signal(SIGTERM))
 .success(.cancelling(.signal(SIGTERM)))
-.success(.stopped(ServiceOutcome(shutdownReason: .signal(SIGTERM), cancellationReason: .signal(SIGTERM), stopDuration: …)))
+.success(.stopped(ServiceOutcome(shutdownReason: .signal(SIGTERM), cancellationReason: .signal(SIGTERM), stopDuration: …, shutdownDuration: …)))
 ```
 
 Failures arrive as `.failure`, each once, where it happens: `.signalsUnavailable`, `.startFailed`, `.serveFailed`, `.shutdownTimeout(after:)` and `.stopFailed`; the result combines them (for example into `.serveAndStopFailed`). A run that never started ends with its failure instead of `.stopped`. If the calling task is cancelled, the observer is cancelled too and may miss the last events; the result still reports the cancellation.

@@ -11,15 +11,22 @@ public struct ServiceOutcome: Sendable, Equatable {
     /// From the end of `serve` to the end of dispose, on the run's
     /// ``ServiceClock``; `nil` if `serve` never ran.
     public let stopDuration: Duration?
+    /// From the start of the graceful shutdown to the end of dispose, on the
+    /// run's ``ServiceClock``: what `shutdownTimeout` limits. For a signal,
+    /// it includes the work `serve` finishes before it returns, which
+    /// ``stopDuration`` leaves out. `nil` if there was no graceful shutdown.
+    public let shutdownDuration: Duration?
 
     /// Creates an outcome; ``Service`` builds them, tests compare against them.
     public init(
         shutdownReason: ShutdownReason?,
         cancellationReason: CancellationReason?,
-        stopDuration: Duration?
+        stopDuration: Duration?,
+        shutdownDuration: Duration?
     ) {
         self.shutdownReason = shutdownReason
         self.cancellationReason = cancellationReason
         self.stopDuration = stopDuration
+        self.shutdownDuration = shutdownDuration
     }
 }

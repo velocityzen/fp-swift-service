@@ -109,6 +109,9 @@ enum ServeMode: Sendable {
     case untilShutdown
     /// Ignores graceful shutdown; returns only when cancelled.
     case ignoreShutdown
+    /// Returns once shutdown is requested and the latch opens, like work
+    /// that finishes what is in flight first.
+    case drain(Latch)
     /// Returns at once.
     case finish
     /// Returns at once with a failure.
@@ -130,6 +133,9 @@ func serving<Resource>(_ mode: ServeMode, _ log: Recorder) -> Serve<Resource> {
                 await shutdown.requested
             case .ignoreShutdown:
                 await Shutdown().requested  // never requested: returns only when cancelled
+            case .drain(let latch):
+                await shutdown.requested
+                await latch.wait()
             case .finish:
                 break
             case .fail:

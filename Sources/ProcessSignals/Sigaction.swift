@@ -66,7 +66,7 @@ package func endProcess(as signal: Int32) {
         action.handler = SIG_DFL
         sigaction(signal, &action, nil)
     }
-    flushOutput(within: 500)
+    flushOutput(within: .milliseconds(500))
     guard !survivable else { _exit(128 + signal) }
 
     var unblock = sigset_t()
@@ -79,17 +79,17 @@ package func endProcess(as signal: Int32) {
 }
 
 /// Flushes every output stream (`fflush(nil)`) on a thread of its own, and
-/// waits at most `milliseconds` for it: a flush stuck on a stalled stream is
-/// left behind.
-private func flushOutput(within milliseconds: Int) {
+/// waits at most `limit` for it: a flush stuck on a stalled stream is left
+/// behind. The deadline is on the monotonic clock, so sleeps that overrun
+/// on a busy machine don't stretch it.
+private func flushOutput(within limit: Duration) {
     let flush = Flush()
     DispatchQueue(label: "ProcessSignals.flush").async { flush.run() }
-    var waited = 0
+    let deadline = ContinuousClock.now + limit
     var tick = timespec()
     tick.tv_nsec = 1_000_000
-    while !flush.isDone, waited < milliseconds {
+    while !flush.isDone, ContinuousClock.now < deadline {
         nanosleep(&tick, nil)
-        waited += 1
     }
 }
 

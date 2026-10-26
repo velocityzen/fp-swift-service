@@ -16,7 +16,8 @@ struct DescriptionTests {
         let outcome = ServiceOutcome(
             shutdownReason: .signal(SIGTERM),
             cancellationReason: .signal(SIGINT),
-            stopDuration: .milliseconds(500)
+            stopDuration: .milliseconds(500),
+            shutdownDuration: .milliseconds(1500)
         )
         let lines: [(ServiceEvent, String)] = [
             (.started, "started"),
@@ -27,10 +28,13 @@ struct DescriptionTests {
             (.cancelling(.signal(SIGINT)), "cancelling (SIGINT)"),
             (
                 .cancelling(.shutdownTimeout(after: .seconds(10))),
-                "cancelling (shutdown took longer than 10.0 seconds)"
+                "cancelling (shutdown took longer than 10 s)"
             ),
             (.cancelling(.caller), "cancelling (caller cancelled)"),
-            (.stopped(outcome), "stopped (SIGTERM, stopped in 0.5 seconds, cancelled (SIGINT))"),
+            (
+                .stopped(outcome),
+                "stopped (SIGTERM, shut down in 1.5 s, stopped in 500 ms, cancelled (SIGINT))"
+            ),
         ]
         for (event, line) in lines {
             #expect(event.description == line)
@@ -42,9 +46,32 @@ struct DescriptionTests {
         let outcome = ServiceOutcome(
             shutdownReason: nil,
             cancellationReason: .caller,
-            stopDuration: nil
+            stopDuration: nil,
+            shutdownDuration: nil
         )
         #expect(outcome.description == "no graceful shutdown, cancelled (caller cancelled)")
+    }
+
+    @Test("durations read in seconds from one second up, in milliseconds below")
+    func durations() {
+        let lines: [(Duration, String)] = [
+            (.zero, "0 ms"),
+            (.nanoseconds(400), "0 ms"),
+            (.nanoseconds(9542), "0.01 ms"),
+            (.microseconds(42), "0.042 ms"),
+            (.milliseconds(250), "250 ms"),
+            (.microseconds(999_999), "999.999 ms"),
+            (.nanoseconds(999_999_900), "1 s"),
+            (.seconds(1), "1 s"),
+            (.milliseconds(1500), "1.5 s"),
+            (.milliseconds(2042), "2.042 s"),
+            (.seconds(2) + .microseconds(999_600), "3 s"),
+            (.seconds(3600), "3600 s"),
+            (.milliseconds(-250), "-250 ms"),
+        ]
+        for (duration, line) in lines {
+            #expect(format(duration) == line, "\(duration)")
+        }
     }
 
     @Test("each error names its phase and carries the service's own error")
@@ -86,11 +113,11 @@ struct DescriptionTests {
             ),
             (
                 .shutdownTimeout(after: .seconds(5)),
-                "Service did not shut down within 5.0 seconds and was cancelled."
+                "Service did not shut down within 5 s and was cancelled."
             ),
             (
                 .shutdownTimeout(after: .seconds(5), serve: .boom("a"), stop: .boom("b")),
-                "Service did not shut down within 5.0 seconds and was cancelled."
+                "Service did not shut down within 5 s and was cancelled."
                     + #" It had failed while serving: boom("a"). It failed to stop: boom("b")."#
             ),
         ]
