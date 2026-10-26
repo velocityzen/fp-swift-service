@@ -12,7 +12,8 @@ import FPBracket
 // Each takes its non-`Sendable` work as `sending`, so it can be started with
 // `async let`. The one exception is the task that reads signals: it must
 // outlive the caller's cancellation (see `watchSignalsAndTimeout`), so it is
-// an unstructured task that `watchSignalsAndTimeout` ends and awaits.
+// an unstructured task that `watchSignalsAndTimeout` ends and awaits, along
+// with the child it requests a signal's graceful shutdown in.
 
 /// Runs the bracket: acquire, `serve`, dispose.
 func runBracket<Resource, Failure: Error>(
@@ -59,18 +60,28 @@ func superviseBracket<Resource, Failure: Error>(
 /// the reader is not a child task (a child would be cancelled with the
 /// caller, ending the stream), and the wait for the bracket ignores
 /// cancellation.
+///
+/// A signal's graceful request runs the shutdown handlers, so the reader
+/// makes it in a child of its own: a handler that blocks never keeps a later
+/// signal from cancelling the service or ending the process. Returns once
+/// that handler has, after the signals are released.
 func watchSignalsAndTimeout<Failure: Error>(
     _ signals: AsyncStream<Int32>,
     timeout: Duration?,
     _ run: ServiceRun<Failure>
 ) async {
     let reader = Task {
-        for await signal in signals { run.receive(signal) }
+        await withTaskGroup(of: Void.self) { requests in
+            for await signal in signals {
+                guard run.receive(signal) else { continue }
+                requests.addTask { run.shutdown.trigger() }
+            }
+        }
     }
     await withTaskGroup(of: Void.self) { group in
         if let timeout {
             group.addTask {
-                await run.shutdown.requested
+                await run.graceful.opened
                 guard !Task.isCancelled else { return }
                 await run.clock.sleep(timeout)
                 guard !Task.isCancelled else { return }

@@ -1,8 +1,13 @@
-import Synchronization
-
-#if !canImport(Darwin) && !canImport(Glibc) && !canImport(Musl)
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#elseif canImport(Musl)
+    import Musl
+#else
     #error("ProcessSignals supports Darwin, Glibc (Linux) and Musl (static Linux) only")
 #endif
+import Synchronization
 
 /// Takes over `signals` and delivers each one as it arrives.
 ///
@@ -17,7 +22,10 @@ import Synchronization
 /// - Each delivery is one element. Signals sent in the same instant can
 ///   merge: the kernel keeps only one pending instance of a standard signal
 ///   (Darwin's kqueue still counts every send).
-/// - An empty `signals` list gives a stream that is already finished.
+/// - A signal that can't be taken over is left out: a number this platform
+///   doesn't have (on Linux, also one the C library keeps for itself), or
+///   SIGKILL or SIGSTOP, which can't be caught. If no signal is left, or the
+///   list is empty, the stream is already finished.
 /// - Returns once the signals are taken over, so a signal sent right after
 ///   this call is not missed. One sent during the call is never lost either:
 ///   it has its previous effect, or is delivered, or both.
@@ -44,7 +52,7 @@ import Synchronization
 public func processSignals(_ signals: [Int32]) async -> AsyncStream<Int32> {
     let (stream, continuation) = AsyncStream<Int32>.makeStream()
     let unique = signals.reduce(into: [Int32]()) { unique, signal in
-        if !unique.contains(signal) { unique.append(signal) }
+        if canTakeOver(signal), !unique.contains(signal) { unique.append(signal) }
     }
 
     // Nothing to wait for: end at once instead of never.
@@ -56,6 +64,17 @@ public func processSignals(_ signals: [Int32]) async -> AsyncStream<Int32> {
     let takeover = await takeOver(unique, delivering: continuation)
     continuation.onTermination = { _ in takeover.release() }
     return stream
+}
+
+/// Whether `signal` can be taken over. `sigaction` is asked rather than a
+/// range checked: it rejects the numbers this platform doesn't have, and on
+/// Linux the ones the C library keeps for itself. (Given one of those,
+/// Darwin's Dispatch would end the process.) SIGKILL and SIGSTOP it accepts
+/// for reading, but they can never be caught or ignored.
+func canTakeOver(_ signal: Int32) -> Bool {
+    guard signal != SIGKILL, signal != SIGSTOP else { return false }
+    var current = sigaction()
+    return sigaction(signal, nil, &current) == 0
 }
 
 /// A signal taken over by one or more streams, and its disposition from

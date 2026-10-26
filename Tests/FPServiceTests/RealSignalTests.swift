@@ -31,6 +31,16 @@ struct RealSignalTests {
         #expect(try result.get().shutdownReason == .signal(SIGCONT))
         #expect(disposition(SIGCONT) == before)
     }
+
+    @Test("shutdown signals that can't be taken over are left out")
+    func cannotTakeOver() async throws {
+        let log = Recorder()
+        let result = try await withDeadline {
+            let withService = Service(probe("a", log), shutdownSignals: [0, 1234, SIGKILL])
+            return await withService { _, _ in .success(()) }
+        }
+        #expect(try result.get().shutdownReason == .serveReturned)
+    }
 }
 
 private func disposition(_ signal: Int32) -> UInt {

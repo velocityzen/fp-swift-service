@@ -1,3 +1,4 @@
+import Dispatch
 import FP
 import FPBracket
 @testable import FPService
@@ -75,6 +76,14 @@ final class Latch: Sendable {
     }
 }
 
+/// Holds a thread until released, like a synchronous call that hangs.
+final class Blocker: @unchecked Sendable {  // DispatchSemaphore is thread-safe
+    private let semaphore = DispatchSemaphore(value: 0)
+
+    func block() { semaphore.wait() }
+    func release() { semaphore.signal() }
+}
+
 /// A test service: a bracket whose resource is its name, recording each phase.
 func probe(
     _ name: String,
@@ -121,6 +130,9 @@ enum ServeMode: Sendable {
     case fail
     /// Registers a shutdown handler, then returns at once.
     case finishWithHandler
+    /// Registers a shutdown handler that blocks until the blocker is
+    /// released; returns only when cancelled.
+    case blockInHandler(Blocker)
 }
 
 typealias Serve<Resource> = @Sendable (Resource, Shutdown) async -> Result<Void, TestError>
@@ -140,6 +152,16 @@ func serving<Resource>(_ mode: ServeMode, _ log: Recorder) -> Serve<Resource> {
                 return .failure(.boom("serve"))
             case .finishWithHandler:
                 shutdown.onShutdown { log.append("handler") }
+            case .blockInHandler(let blocker):
+                let handler: @Sendable () -> Void = {
+                    log.append("handler")
+                    blocker.block()
+                    log.append("handler returned")
+                }
+                await withShutdownHandler(on: shutdown, handler) {
+                    log.append("handler registered")
+                    await Shutdown().requested  // never requested: returns only when cancelled
+                }
         }
         log.append(Task.isCancelled ? "served: cancelled" : "served")
         log.append("shutdown requested: \(shutdown.isRequested)")

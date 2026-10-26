@@ -269,7 +269,7 @@ await withService(body)   // body: (Resource, Shutdown) async -> Result<Void, Fa
 await withService()       // default body: wait for shutdown
 ```
 
-A `Service` value runs once; calling it twice doesn't compile. Brackets stay reusable, so build a new `Service` for another run. The call returns after dispose has finished, the signals are released and the observer has returned.
+A `Service` value runs once; calling it twice doesn't compile. Brackets stay reusable, so build a new `Service` for another run. The call returns after dispose has finished, the signals are released, and the shutdown handlers and the observer have returned.
 
 ### Results
 
@@ -324,6 +324,7 @@ for await signal in await processSignals([SIGTERM, SIGINT]) {
 ```
 
 - **Startup:** `processSignals` returns once every source is registered, so a signal sent right after the call is not missed.
+- **Left out:** a signal that can't be taken over is skipped: a number the platform doesn't have, or `SIGKILL` and `SIGSTOP`, which can't be caught. If none is left, the stream is already finished.
 - **Deliveries:** each delivery is one element. Signals sent in the same instant can merge: the kernel keeps only one pending instance of a standard signal (Darwin's kqueue still counts every send).
 - **While the stream lives:** the signals' default actions are off.
 - **Ending the stream:** cancelling the task that iterates it ends it. That releases the signals and restores their previous dispositions. Breaking out of the loop does not end the stream while it is still referenced.

@@ -41,6 +41,10 @@ final class ServiceRun<Failure: Error>: Sendable {
 
     /// Handed to `serve`; requested when stage 1 begins.
     let shutdown = Shutdown()
+    /// Opens when stage 1 begins, before `shutdown` is requested. The
+    /// timeout starts from it, so a shutdown handler that blocks can't hold
+    /// the timeout back.
+    let graceful = Gate()
     /// Opens when stage 2 begins.
     let cancelling = Gate()
     /// Opens when the bracket call has returned (dispose finished).
@@ -116,7 +120,12 @@ final class ServiceRun<Failure: Error>: Sendable {
     /// A signal arrived: move one stage forward from where the run is. Once
     /// the bracket has returned there is nothing left to stop, so it only
     /// shows up as an event.
-    func receive(_ signal: Int32) {
+    ///
+    /// Returns whether it began the graceful stage. The caller then requests
+    /// `shutdown` in a task of its own: the request runs the shutdown
+    /// handlers, and one that blocks must not keep the next signal from
+    /// being read.
+    func receive(_ signal: Int32) -> Bool {
         let effect = state.withLock { state -> Effect in
             emit(.success(.signal(signal)))
             guard !state.finished else { return .none }
@@ -129,7 +138,12 @@ final class ServiceRun<Failure: Error>: Sendable {
                     return .kill(signal)
             }
         }
-        apply(effect)
+        guard case .graceful = effect else {
+            apply(effect)
+            return false
+        }
+        graceful.open()
+        return true
     }
 
     /// Stage 2 for a reason other than a signal (deadline, caller).
@@ -161,7 +175,9 @@ final class ServiceRun<Failure: Error>: Sendable {
     private func apply(_ effect: Effect) {
         switch effect {
             case .none: break
-            case .graceful: shutdown.trigger()
+            case .graceful:
+                graceful.open()
+                shutdown.trigger()
             case .cancel: cancelling.open()
             case .kill(let signal): terminate(signal)
         }

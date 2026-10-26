@@ -11,9 +11,12 @@
 /// }
 /// ```
 ///
-/// The handler runs once, synchronously, on the thread that requested the
-/// shutdown — for a signal, the task that reads signals — so keep it short.
-/// If shutdown was already requested, it runs at once, before `operation`.
+/// The handler runs once, synchronously, in the task that requests the
+/// shutdown. For a signal that is a task of its own, so a handler that blocks
+/// never keeps a later signal from cancelling the service or ending the
+/// process. Keep it short all the same: the service's call returns only once
+/// it has. If shutdown was already requested, it runs at once, before
+/// `operation`.
 public func withShutdownHandler<T>(
     on shutdown: Shutdown,
     _ handler: @escaping @Sendable () -> Void,

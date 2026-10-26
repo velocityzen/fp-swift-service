@@ -37,6 +37,16 @@ let package = Package(
                 .product(name: "FPBracket", package: "fp-swift-bracket"),
             ]
         ),
+        // A service only stage 3 can stop, as a real process: the tests that
+        // end a process launch and signal it.
+        .executableTarget(
+            name: "ServiceFixture",
+            dependencies: [
+                "FPService",
+                .product(name: "FPBracket", package: "fp-swift-bracket"),
+            ],
+            path: "Tests/ServiceFixture"
+        ),
         .testTarget(
             name: "FPServiceTests",
             dependencies: [

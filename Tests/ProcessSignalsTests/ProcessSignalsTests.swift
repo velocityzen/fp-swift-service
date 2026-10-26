@@ -55,6 +55,16 @@ struct ProcessSignalsTests {
         #expect(try await collect(1, from: stream) == [])
     }
 
+    @Test("signals that can't be taken over are left out")
+    func cannotTakeOver() async throws {
+        let none = await processSignals([0, -1, 1234, SIGKILL, SIGSTOP])
+        #expect(try await collect(1, from: none) == [])
+
+        let stream = await processSignals([1234, SIGURG, SIGKILL])
+        send(SIGURG)
+        #expect(try await collect(1, from: stream) == [SIGURG])
+    }
+
     @Test("ending the stream restores the disposition")
     func restores() async throws {
         let original = disposition(SIGURG)

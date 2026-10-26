@@ -91,6 +91,36 @@ struct StoppingTests {
         #expect(log.events.filter { $0 == "signal 15" }.count == 3)
     }
 
+    @Test("a shutdown handler that blocks does not hold back the signals after it")
+    func blockingHandler() async throws {
+        let harness = Harness()
+        let blocker = Blocker()
+        let gate = Latch()
+        let log = harness.log
+        let result = try await run(
+            harness,
+            serve: .blockInHandler(blocker),
+            waitingFor: ["handler registered"],
+            then: {
+                harness.send(SIGTERM)
+                await log.wait(for: "handler")  // and it does not return
+                harness.send(SIGTERM)
+                await log.wait(for: "stop:a")  // cancelled; dispose is stuck on the gate
+                harness.send(SIGTERM)
+                await log.wait(for: "terminate: 15")
+                blocker.release()
+                gate.open()  // the fake terminate does not end the test process
+            },
+            service: { probe("a", log, stopGate: gate) }
+        )
+
+        #expect(try result.get().cancellationReason == .signal(SIGTERM))
+        #expect(log.with(prefix: "terminate:") == ["terminate: 15"])
+        // The call still waits for the handler.
+        let all = log.all
+        #expect(all.firstIndex(of: "handler returned")! < all.firstIndex(of: "returned")!)
+    }
+
     @Test("after serve returned, the first signal cancels and the second ends the process")
     func signalAfterServeReturned() async throws {
         let harness = Harness()

@@ -21,6 +21,8 @@ These are the signals to list in a shutdown, such as `FPService`'s `shutdownSign
 
 ### Can't be taken over
 
+``processSignals(_:)`` leaves these out.
+
 | Signal | Default action | Meaning |
 |---|---|---|
 | `SIGKILL` | terminate | Kill the process at once. It cannot be caught, blocked or ignored: no cleanup runs |
