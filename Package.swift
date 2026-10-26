@@ -14,12 +14,11 @@ let package = Package(
         .package(url: "https://github.com/velocityzen/fp-swift-bracket", from: "1.3.0"),
     ],
     targets: [
-        // The core: FP, FPBracket and ProcessSignals. No Foundation.
+        // The core: FPBracket (which brings FP) and ProcessSignals. No Foundation.
         .target(
             name: "FPService",
             dependencies: [
                 "ProcessSignals",
-                .product(name: "FP", package: "fp-swift"),
                 .product(name: "FPBracket", package: "fp-swift-bracket"),
             ]
         ),
@@ -29,7 +28,6 @@ let package = Package(
             dependencies: [
                 "FPService",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
-                .product(name: "FP", package: "fp-swift"),
                 .product(name: "FPBracket", package: "fp-swift-bracket"),
             ]
         ),
@@ -56,7 +54,6 @@ let package = Package(
             dependencies: [
                 "FPService",
                 "ServiceTestSupport",
-                .product(name: "FP", package: "fp-swift"),
                 .product(name: "FPBracket", package: "fp-swift-bracket"),
             ]
         ),

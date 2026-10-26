@@ -9,9 +9,10 @@ import ProcessSignals
 import ServiceTestSupport
 import Testing
 
-/// These send real signals to the test process. They use SIGWINCH and
-/// SIGURG, whose default action is to ignore, so a failure can never kill the
-/// test run. They change process-wide dispositions, so they run one at a time.
+/// These send real signals to the test process. They use SIGWINCH, SIGURG
+/// and SIGCHLD, whose default action is to ignore, so a failure can never
+/// kill the test run. They change process-wide dispositions, so they run one
+/// at a time.
 ///
 /// Signals are sent with `kill(getpid(), …)`, to the whole process, like a
 /// real `kill` or Ctrl-C. (`raise` targets only the calling thread.)
@@ -26,9 +27,10 @@ struct ProcessSignalsTests {
     }
 
     #if canImport(Darwin)
-        // Darwin's kqueue counts every send. With a signal handler (Linux),
-        // the kernel keeps only one pending instance of a standard signal, so
-        // copies sent in the same instant can merge: this holds on Darwin only.
+        // Darwin's kqueue counts every send. Linux reads them from its
+        // signal handler, and the kernel keeps only one pending instance of a
+        // standard signal, so copies sent in the same instant can merge: this
+        // holds on Darwin only.
         @Test("signals sent back to back stay separate elements")
         func coalesced() async throws {
             let stream = await processSignals([SIGWINCH])
@@ -88,10 +90,18 @@ struct ProcessSignalsTests {
             }
         }
         #expect(during != original)  // subscribed to while the stream ran
-        #if canImport(Darwin)
-            #expect(during == bits(SIG_IGN))  // kqueue reads it; Linux uses a handler
-        #endif
+        #expect(during != bits(SIG_IGN))  // caught, so `exec` resets it in a child
         #expect(disposition(SIGURG) == original)
+    }
+
+    @Test("SIGCHLD is delivered, and the child can still be waited for")
+    func childExited() async throws {
+        let stream = await processSignals([SIGCHLD])
+        let child = try #require(spawnExitingChild())
+        // Another child of this process may end first; any SIGCHLD will do.
+        #expect(try await collect(1, from: stream) == [SIGCHLD])
+        var status: Int32 = 0
+        #expect(waitpid(child, &status, 0) == child)  // not reaped behind our back
     }
 
     @Test("streams can share a signal: each gets it, and the last to end restores it")
@@ -128,6 +138,17 @@ private func listen(_ name: String, _ report: AsyncStream<String>.Continuation) 
     let stream = await processSignals([SIGURG])
     report.yield("\(name) ready")
     for await _ in stream { report.yield("\(name) got") }
+}
+
+/// Starts a child process that exits at once; returns its pid.
+private func spawnExitingChild() -> pid_t? {
+    let arguments = ["/bin/sh", "-c", "exit 0"]
+    let argv: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) } + [nil]
+    defer { argv.forEach { free($0) } }
+    let environment: [UnsafeMutablePointer<CChar>?] = [nil]
+    var pid: pid_t = 0
+    guard posix_spawn(&pid, "/bin/sh", nil, nil, argv, environment) == 0 else { return nil }
+    return pid
 }
 
 /// Sends `signal` to this process.

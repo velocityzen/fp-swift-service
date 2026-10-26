@@ -66,10 +66,10 @@ final class Server: Sendable {
     }
 
     /// Handles requests until `beginGracefulShutdown()`, then finishes the
-    /// one in flight and returns.
+    /// one in flight and returns; stops at once if cancelled.
     func run() async -> Result<Void, ExampleError> {
         var request = 0
-        while accepting.withLock({ $0 }) {
+        while accepting.withLock({ $0 }) && !Task.isCancelled {
             request += 1
             print("handling request \(request)")
             try? await Task.sleep(for: .seconds(1))

@@ -29,10 +29,11 @@ import Synchronization
 /// - Returns once the signals are subscribed to, so a signal sent right after
 ///   this call is not missed. One sent during the call is never lost either:
 ///   it has its previous effect, or is delivered, or both.
-/// - While the stream lives, the signals' default actions are off, so they
-///   can't end the process. On Darwin that means `SIG_IGN`, which a child
-///   process inherits across `exec`: start children with their signals
-///   reset (`POSIX_SPAWN_SETSIGDEF`), as Foundation's `Process` does.
+/// - While the stream lives, a handler of its own catches the signals, so
+///   their default actions can't end the process. Like any handler, it can
+///   interrupt a blocking call on a thread that doesn't block the signal;
+///   with `SA_RESTART`, most calls resume. `exec` resets a caught signal, so
+///   child processes start with the default actions.
 /// - The stream ends when the task iterating it is cancelled, or when the
 ///   stream and all its iterators are deallocated. Ending it unsubscribes
 ///   from the signals. Breaking out of the loop alone does not end the stream
@@ -46,11 +47,12 @@ import Synchronization
 ///   be made), the stream is already finished and the dispositions are left
 ///   alone; a later call tries again.
 ///
-/// On Darwin the signals are set to `SIG_IGN` and read from kqueue through
-/// Dispatch signal sources. On Linux a handler of its own writes each signal
-/// to a pipe that a Dispatch read source drains; Dispatch signal sources are
-/// not used there, because libdispatch installs a handler of its own that it
-/// never removes.
+/// On Darwin the handler does nothing, and the signals are read from kqueue
+/// through Dispatch signal sources. (Not `SIG_IGN`: a child process would
+/// inherit it across `exec`, and an ignored SIGCHLD is never sent at all.)
+/// On Linux the handler writes each signal to a pipe that a Dispatch read
+/// source drains; Dispatch signal sources are not used there, because
+/// libdispatch installs a handler of its own that it never removes.
 public func processSignals(_ signals: [Int32]) async -> AsyncStream<Int32> {
     await registerSignals(signals).stream
 }

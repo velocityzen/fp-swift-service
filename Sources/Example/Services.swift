@@ -27,10 +27,10 @@ final class Server: Sendable {
     }
 
     /// Handles requests until `beginGracefulShutdown()`, then finishes the
-    /// one in flight and returns.
+    /// one in flight and returns; stops at once if cancelled.
     func run() async -> Result<Void, ExampleError> {
         var request = 0
-        while accepting.withLock({ $0 }) {
+        while accepting.withLock({ $0 }) && !Task.isCancelled {
             request += 1
             print("handling request \(request)")
             try? await Task.sleep(for: .seconds(1))
@@ -84,12 +84,14 @@ func withDependencies() -> BracketAsync<(Database, Server), ExampleError> {
 
 // readme:begin job
 /// Does a fixed amount of work, then returns — which stops the service.
+/// Returns early if cancelled.
 func importBatches(
     _ resources: (Database, Server),
     _: Shutdown
 ) async -> Result<Void, ExampleError> {
     for batch in 1...3 {
         try? await Task.sleep(for: .seconds(1))
+        guard !Task.isCancelled else { break }
         print("imported batch \(batch)")
     }
     return .success(())

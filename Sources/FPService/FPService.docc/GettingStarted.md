@@ -93,12 +93,14 @@ Calling the service with no argument just waits for a signal. To do work while t
 <!-- example: job -->
 ```swift
 /// Does a fixed amount of work, then returns — which stops the service.
+/// Returns early if cancelled.
 func importBatches(
     _ resources: (Database, Server),
     _: Shutdown
 ) async -> Result<Void, ExampleError> {
     for batch in 1...3 {
         try? await Task.sleep(for: .seconds(1))
+        guard !Task.isCancelled else { break }
         print("imported batch \(batch)")
     }
     return .success(())

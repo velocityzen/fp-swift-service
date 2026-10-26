@@ -2,8 +2,14 @@
     import Darwin
     import Dispatch
 
-    /// Darwin: each signal is set to `SIG_IGN`, so its default action never
-    /// runs, while kqueue — under a Dispatch signal source — still records it.
+    /// Darwin: each signal is caught by ``catchSignal(_:)``, which does
+    /// nothing, so its default action never runs, while kqueue — under a
+    /// Dispatch signal source — still records it.
+    ///
+    /// Caught rather than set to `SIG_IGN`: an ignored signal stays ignored
+    /// across `exec`, in every child process, where a caught one is reset to
+    /// its default action; and an ignored SIGCHLD is never sent at all, while
+    /// exited children are reaped at once, so `waitpid` fails.
     func subscribe(
         _ signals: [Int32],
         delivering continuation: AsyncStream<Int32>.Continuation
@@ -24,9 +30,9 @@
                 source.setRegistrationHandler { registered.resume() }
                 source.resume()
             }
-            // Ignored only once kqueue records it: a signal sent in between
+            // Caught only once kqueue records it: a signal sent in between
             // has its previous effect and is delivered too, rather than
-            // being ignored and lost.
+            // being caught and lost.
             addSubscriber(to: signal)
             sources.append(source)
         }
@@ -39,26 +45,33 @@
         let signals: [Int32]
         let sources: [any DispatchSourceSignal]
 
+        /// Dispositions first: a signal sent in between has its previous
+        /// effect, rather than being caught with no source to record it.
         func release() {
-            sources.forEach { $0.cancel() }
             signals.forEach(removeSubscriber(from:))
+            sources.forEach { $0.cancel() }
         }
     }
 
     /// One serial queue for every signal handler; handlers only yield.
     private let signalQueue = DispatchQueue(label: "ProcessSignals")
 
+    /// The signal handler: nothing to do, kqueue has recorded the signal.
+    private func catchSignal(_: Int32) {}
+
     /// A signal's disposition from before its first subscriber.
     struct Disposition: @unchecked Sendable {  // `sigaction` holds a C function pointer
         let signal: Int32
         let action: sigaction
 
-        /// Sets `SIG_IGN`, returning the previous disposition.
+        /// Installs ``catchSignal(_:)``, returning the previous disposition.
         static func create(_ signal: Int32) -> Disposition {
-            var ignore = sigaction()
-            ignore.handler = SIG_IGN
+            var action = sigaction()
+            action.handler = catchSignal
+            action.sa_flags = SA_RESTART
+            sigemptyset(&action.sa_mask)
             var previous = sigaction()
-            sigaction(signal, &ignore, &previous)
+            sigaction(signal, &action, &previous)
             return Disposition(signal: signal, action: previous)
         }
 

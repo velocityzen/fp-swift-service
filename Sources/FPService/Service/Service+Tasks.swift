@@ -35,14 +35,11 @@ func runBracket<Resource, Failure: Error>(
 ///
 /// Cancelling the caller begins stage 2 at once, not when the bracket
 /// returns, so a signal during the cancelled dispose ends the process.
-/// `started` comes first even so: it is emitted before the bracket's task
-/// starts, and the cancellation handler installed.
 func superviseBracket<Resource, Failure: Error>(
     _ bracket: sending BracketAsync<Resource, Failure>,
     _ serve: sending @escaping (Resource, Shutdown) async -> Result<Void, Failure>,
     _ run: ServiceRun<Failure>
 ) async {
-    run.started()
     async let bracketTask: Void = runBracket(bracket, serve, run)
     await withTaskCancellationHandler {
         await firstOpened(run.done, run.cancelling)

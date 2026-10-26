@@ -47,6 +47,19 @@ struct EventTests {
         )
     }
 
+    @Test("a signal already waiting when the run begins comes after started")
+    func signalBeforeStart() async throws {
+        let harness = Harness()
+        harness.send(SIGTERM)
+        let result = try await run(harness) { probe("a", harness.log) }
+
+        #expect(try result.get().shutdownReason == .signal(SIGTERM))
+        let events = harness.log.events
+        #expect(events.first == "started")
+        #expect(events.contains("shutting down: signal 15"))
+        #expect(events.last == "stopped")
+    }
+
     @Test("the stream finishes by itself, before the call returns")
     func streamFinishes() async throws {
         let harness = Harness()

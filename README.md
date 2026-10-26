@@ -114,12 +114,14 @@ Calling `withService()` with no argument just waits for a signal. To do work whi
 <!-- example: job -->
 ```swift
 /// Does a fixed amount of work, then returns — which stops the service.
+/// Returns early if cancelled.
 func importBatches(
     _ resources: (Database, Server),
     _: Shutdown
 ) async -> Result<Void, ExampleError> {
     for batch in 1...3 {
         try? await Task.sleep(for: .seconds(1))
+        guard !Task.isCancelled else { break }
         print("imported batch \(batch)")
     }
     return .success(())
@@ -192,10 +194,10 @@ final class Server: Sendable {
     }
 
     /// Handles requests until `beginGracefulShutdown()`, then finishes the
-    /// one in flight and returns.
+    /// one in flight and returns; stops at once if cancelled.
     func run() async -> Result<Void, ExampleError> {
         var request = 0
-        while accepting.withLock({ $0 }) {
+        while accepting.withLock({ $0 }) && !Task.isCancelled {
             request += 1
             print("handling request \(request)")
             try? await Task.sleep(for: .seconds(1))
@@ -327,8 +329,8 @@ for await signal in await processSignals([SIGTERM, SIGINT]) {
 - **Startup:** `processSignals(_:)` returns once every signal is subscribed to, so a signal sent right after the call is not missed. One sent during the call has its previous effect or is delivered; it is never lost.
 - **Left out:** a signal that can't be subscribed to is skipped: a number the platform doesn't have (on Linux, also one the C library keeps for itself), or `SIGKILL` and `SIGSTOP`, which can't be caught. If none is left, the stream is already finished.
 - **Deliveries:** each delivery is one element. Signals sent in the same instant can merge: the kernel keeps only one pending instance of a standard signal (Darwin's kqueue still counts every send).
-- **While the stream lives:** the signals' default actions are off, so they can't end the process.
-- **Child processes:** on Darwin a subscribed signal is set to `SIG_IGN`, and ignored signals survive `exec`: a child started with `posix_spawn`, `fork` and `exec`, or `system()` can't be stopped with that signal. Reset the child's signals as it starts (`POSIX_SPAWN_SETSIGDEF`), as Foundation's `Process` does. On Linux the signal gets a handler, which `exec` resets.
+- **While the stream lives:** a handler of its own catches the signals, so their default actions can't end the process. Like any handler, it can interrupt a blocking call on a thread that doesn't block the signal; with `SA_RESTART`, most calls resume.
+- **Child processes:** `exec` resets a caught signal to its default action, so a child started with `posix_spawn`, `fork` and `exec`, or `system()` is unaffected. That is why the signals are caught, never set to `SIG_IGN`, which survives `exec`. `SIGCHLD` can be subscribed to as well, and children can still be waited for.
 - **Ending the stream:** cancelling the task that iterates it ends it. That unsubscribes it from the signals; the last subscriber to a signal restores its previous disposition. Breaking out of the loop does not end the stream while it is still referenced.
 - **Sharing:** several streams can subscribe to the same signal at once, and each gets every delivery.
 - **No extra thread:** Dispatch delivers signals without a thread of its own.

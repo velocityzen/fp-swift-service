@@ -1,5 +1,7 @@
 /// Runs `operation` with `handler` registered on `shutdown`, and removes the
-/// handler when the operation ends, so finished work is never called back.
+/// handler when the operation ends: a shutdown requested after that never
+/// calls it. One requested just as the operation ends may still be running
+/// the handler, though, so make it safe to call on finished work.
 ///
 /// Use it when the work has its own graceful-stop API: the handler calls it,
 /// and the operation is left to finish in-flight work and return by itself.

@@ -5,6 +5,8 @@
 #elseif canImport(Musl)
     import Musl
 #endif
+import Dispatch
+import Synchronization
 
 // Every place in the package that reads or sets a signal handler goes through
 // here, so the C libraries' different names for the field are spelled once.
@@ -46,17 +48,61 @@ package func currentHandler(_ signal: Int32) -> (@convention(c) (Int32) -> Void)
 /// running (it ignores, stops or continues it) ends it with exit status 128 +
 /// the signal instead, the shell's convention.
 ///
-/// Standard output and error are flushed first: neither way of ending runs
-/// the process's exit handlers. The signal is sent with `kill`, to the whole
-/// process: `raise` targets only the calling thread, and the Dispatch worker
-/// threads this runs on block asynchronous signals.
+/// Neither way runs the process's exit handlers, so output is flushed first,
+/// for half a second at most: a stream stuck on a reader that stopped
+/// reading would hold the flush, and the end, forever. The default action is
+/// restored before that, so another signal meanwhile ends the process at
+/// once.
+///
+/// The signal is sent with `kill`, to the whole process: `raise` targets
+/// only the calling thread. The Dispatch worker threads this runs on block
+/// asynchronous signals, so it is unblocked here first, and some thread can
+/// always take it. Should the process still run a second later (something
+/// caught the signal again), it exits with 128 + the signal after all.
 package func endProcess(as signal: Int32) {
-    fflush(nil)
-    guard !survivableSignals.contains(signal) else { _exit(128 + signal) }
-    var action = sigaction()
-    action.handler = SIG_DFL
-    sigaction(signal, &action, nil)
+    let survivable = survivableSignals.contains(signal)
+    if !survivable {
+        var action = sigaction()
+        action.handler = SIG_DFL
+        sigaction(signal, &action, nil)
+    }
+    flushOutput(within: 500)
+    guard !survivable else { _exit(128 + signal) }
+
+    var unblock = sigset_t()
+    sigemptyset(&unblock)
+    sigaddset(&unblock, signal)
+    pthread_sigmask(SIG_UNBLOCK, &unblock, nil)
     kill(getpid(), signal)
+    sleep(1)
+    _exit(128 + signal)
+}
+
+/// Flushes every output stream (`fflush(nil)`) on a thread of its own, and
+/// waits at most `milliseconds` for it: a flush stuck on a stalled stream is
+/// left behind.
+private func flushOutput(within milliseconds: Int) {
+    let flush = Flush()
+    DispatchQueue(label: "ProcessSignals.flush").async { flush.run() }
+    var waited = 0
+    var tick = timespec()
+    tick.tv_nsec = 1_000_000
+    while !flush.isDone, waited < milliseconds {
+        nanosleep(&tick, nil)
+        waited += 1
+    }
+}
+
+/// One flush of every output stream, and whether it has returned.
+private final class Flush: Sendable {
+    private let done = Atomic(false)
+
+    var isDone: Bool { done.load(ordering: .acquiring) }
+
+    func run() {
+        fflush(nil)
+        done.store(true, ordering: .releasing)
+    }
 }
 
 /// Signals whose default action leaves the process running: ignore, stop or

@@ -127,6 +127,7 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
         async let observed: Void = runObserver(observe, events)
         let (signals, _, unavailable) = await signalStream(shutdownSignals)
         if unavailable.isEmpty {
+            run.started()
             async let watched: Void = watchSignalsAndTimeout(signals, timeout: timeout, run)
             await superviseBracket(bracket, serve, run)
             await watched
