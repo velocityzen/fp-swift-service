@@ -279,7 +279,7 @@ A `Service` value runs once; calling it twice doesn't compile. Brackets stay reu
 | the body failed | `.failure(.serveFailed(e))` |
 | dispose failed | `.failure(.stopFailed(e))` |
 | both failed | `.failure(.serveAndStopFailed(serve:stop:))` |
-| the timeout passed | `.failure(.shutdownTimeout(after:))` |
+| the timeout passed | `.failure(.shutdownTimeout(after:serve:stop:))` — first, with any body or dispose failure |
 | otherwise | `.success(ServiceOutcome)` |
 
 `ServiceOutcome` holds what the stop events said:
@@ -313,7 +313,7 @@ Failures arrive as `.failure` where they happen. A run whose acquire failed ends
 
 ## ProcessSignals
 
-A separate product with no package dependencies: process signals as an `AsyncStream`, on Dispatch signal sources. `Service` uses it; you can use it on its own.
+A separate product with no package dependencies: process signals as an `AsyncStream`, delivered through Dispatch. `Service` uses it; you can use it on its own.
 
 ```swift
 import ProcessSignals

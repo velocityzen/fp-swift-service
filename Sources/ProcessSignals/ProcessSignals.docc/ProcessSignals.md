@@ -1,6 +1,6 @@
 # ``ProcessSignals``
 
-Process signals as an `AsyncStream`, on Dispatch signal sources. No package dependencies.
+Process signals as an `AsyncStream`, delivered through Dispatch. No package dependencies.
 
 ## Overview
 
@@ -15,11 +15,13 @@ for await signal in await processSignals([SIGTERM, SIGINT]) {
 - **Startup:** ``processSignals(_:)`` returns once every source is registered, so a signal sent right after the call is not missed.
 - **Deliveries:** each delivery is one element. Signals sent in the same instant can merge: the kernel keeps only one pending instance of a standard signal (Darwin's kqueue still counts every send).
 - **While the stream lives:** the signals' default actions are off, so they can't end the process.
-- **Ending the stream:** cancelling the task that iterates it ends it. That releases the signals and restores their previous dispositions. Breaking out of the loop does not end the stream while it is still referenced.
+- **Ending the stream:** cancelling the task that iterates it ends it. That releases the signals; the last stream holding a signal restores its previous disposition. Breaking out of the loop does not end the stream while it is still referenced.
 - **No extra thread:** Dispatch delivers signals without a thread of its own.
 - **Names:** ``signalName(_:)`` gives a signal's conventional name, such as `"SIGTERM"`, matched against the platform's own constants.
 
-Dispositions are process-wide: take over each signal in one stream at a time. Which signals to take over, and which to leave alone, is in <doc:SignalReference>. `FPService`'s `Service` uses this library for its `shutdownSignals`.
+- **Sharing:** several streams can take over the same signal at once, and each gets every delivery.
+
+Which signals to take over, and which to leave alone, is in <doc:SignalReference>. `FPService`'s `Service` uses this library for its `shutdownSignals`.
 
 ## Topics
 

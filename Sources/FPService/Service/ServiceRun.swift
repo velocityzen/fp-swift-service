@@ -21,6 +21,8 @@ final class ServiceRun<Failure: Error>: Sendable {
         var shutdownReason: ShutdownReason?
         var cancellationReason: CancellationReason?
         var ready = false
+        /// The bracket call has returned: nothing is left to stop.
+        var finished = false
         var startFailure: Failure?
         var serveFailure: Failure?
         var stopFailure: Failure?
@@ -95,6 +97,7 @@ final class ServiceRun<Failure: Error>: Sendable {
         let now = clock.now()
         state.withLock { state in
             state.stopEnded = now
+            state.finished = true
             guard case .failure(let error) = result else { return }
             if !state.ready {
                 state.startFailure = error
@@ -113,10 +116,13 @@ final class ServiceRun<Failure: Error>: Sendable {
 
     // MARK: Stages
 
-    /// A signal arrived: move one stage forward from where the run is.
+    /// A signal arrived: move one stage forward from where the run is. Once
+    /// the bracket has returned there is nothing left to stop, so it only
+    /// shows up as an event.
     func receive(_ signal: Int32) {
         let effect = state.withLock { state -> Effect in
             emit(.success(.signal(signal)))
+            guard !state.finished else { return .none }
             switch state.stage {
                 case .running:
                     return beginGraceful(&state, .signal(signal)) ? .graceful : .none
@@ -144,13 +150,14 @@ final class ServiceRun<Failure: Error>: Sendable {
     }
 
     private func beginCancel(_ state: inout State, _ reason: CancellationReason) -> Bool {
-        guard state.stage != .cancelling else { return false }
+        guard !state.finished, state.stage != .cancelling else { return false }
         state.stage = .cancelling
         state.cancellationReason = reason
         emit(.success(.cancelling(reason)))
         if case .shutdownTimeout(let after) = reason {
             state.timedOut = after
-            emit(.failure(.shutdownTimeout(after: after)))
+            // Dispose has not finished yet, so only a serve failure is known.
+            emit(.failure(.shutdownTimeout(after: after, serve: state.serveFailure)))
         }
         return true
     }
@@ -166,19 +173,24 @@ final class ServiceRun<Failure: Error>: Sendable {
 
     // MARK: Result
 
-    /// The run's result, read once every child has finished.
+    /// The run's result, read once every child has finished. A timeout comes
+    /// first — it is why the service was cancelled — and carries any serve or
+    /// dispose failure with it.
     func result() -> Result<ServiceOutcome, ServiceError<Failure>> {
         let state = state.withLock { $0 }
         if let error = state.startFailure { return .failure(.startFailed(error)) }
+        if let after = state.timedOut {
+            return .failure(
+                .shutdownTimeout(after: after, serve: state.serveFailure, stop: state.stopFailure)
+            )
+        }
         switch (state.serveFailure, state.stopFailure) {
             case (let serve?, let stop?):
                 return .failure(.serveAndStopFailed(serve: serve, stop: stop))
             case (let serve?, nil): return .failure(.serveFailed(serve))
-            default: break
+            case (nil, let stop?): return .failure(.stopFailed(stop))
+            case (nil, nil): return .success(outcome(state))
         }
-        if let after = state.timedOut { return .failure(.shutdownTimeout(after: after)) }
-        if let stop = state.stopFailure { return .failure(.stopFailed(stop)) }
-        return .success(outcome(state))
     }
 
     /// Ends the event stream: `.stopped` for a service that started, then finish.

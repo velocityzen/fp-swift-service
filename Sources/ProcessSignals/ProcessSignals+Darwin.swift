@@ -9,10 +9,9 @@
         delivering continuation: AsyncStream<Int32>.Continuation
     ) async -> Takeover {
         var sources: [any DispatchSourceSignal] = []
-        var previous: [Disposition] = []
 
         for signal in signals {
-            previous.append(Disposition.ignore(signal))
+            hold(signal)
             let source = DispatchSource.makeSignalSource(signal: signal, queue: signalQueue)
             // Dispatch coalesces deliveries that arrive before the handler
             // runs; `data` is how many there were, so a quick double Ctrl-C
@@ -29,17 +28,17 @@
             sources.append(source)
         }
 
-        return Takeover(sources: sources, previous: previous)
+        return Takeover(signals: signals, sources: sources)
     }
 
     /// What one stream took over, released when it ends.
     struct Takeover: Sendable {
+        let signals: [Int32]
         let sources: [any DispatchSourceSignal]
-        let previous: [Disposition]
 
         func release() {
             sources.forEach { $0.cancel() }
-            previous.forEach { $0.restore() }
+            signals.forEach(letGo)
         }
     }
 
@@ -52,7 +51,7 @@
         let action: sigaction
 
         /// Sets `SIG_IGN`, returning the previous disposition.
-        static func ignore(_ signal: Int32) -> Disposition {
+        static func takeOver(_ signal: Int32) -> Disposition {
             var ignore = sigaction()
             ignore.__sigaction_u.__sa_handler = SIG_IGN
             var previous = sigaction()

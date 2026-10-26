@@ -1,3 +1,5 @@
+import Synchronization
+
 /// Takes over `signals` and delivers each one as it arrives.
 ///
 /// ```swift
@@ -18,12 +20,13 @@
 ///   can't end the process.
 /// - The stream ends when the task iterating it is cancelled, or when the
 ///   stream and all its iterators are released. Ending it releases the
-///   signals and restores their previous dispositions. Breaking out of the
-///   loop alone does not end the stream while it is still referenced.
+///   signals. Breaking out of the loop alone does not end the stream while it
+///   is still referenced.
+/// - Several streams can take over the same signal at once: each gets every
+///   delivery, and the signal's previous disposition is restored when the
+///   last of them ends.
 /// - Waiting costs no thread of its own: Dispatch delivers the signals through
 ///   the same machinery it uses for every other source.
-/// - Dispositions are process-wide: take over each signal in one stream at a
-///   time.
 /// - If the signals cannot be taken over at all (on Linux, when no pipe can be
 ///   made), the stream is already finished and the dispositions are left
 ///   alone.
@@ -48,4 +51,40 @@ public func processSignals(_ signals: [Int32]) async -> AsyncStream<Int32> {
     let takeover = await takeOver(unique, delivering: continuation)
     continuation.onTermination = { _ in takeover.release() }
     return stream
+}
+
+/// A signal taken over by one or more streams, and its disposition from
+/// before the first of them.
+private struct Hold {
+    var streams: Int
+    let previous: Disposition
+}
+
+/// Every signal some stream holds. Dispositions are process-wide, so streams
+/// share them: the first to take a signal over sets it, the last to let go
+/// restores it.
+private let holds = Mutex<[Int32: Hold]>([:])
+
+/// Takes over `signal`'s disposition, unless another stream already did.
+func hold(_ signal: Int32) {
+    holds.withLock { holds in
+        if holds[signal] != nil {
+            holds[signal]?.streams += 1
+        } else {
+            holds[signal] = Hold(streams: 1, previous: Disposition.takeOver(signal))
+        }
+    }
+}
+
+/// Lets go of `signal`; the last stream holding it restores its disposition.
+func letGo(_ signal: Int32) {
+    holds.withLock { holds in
+        guard let hold = holds[signal] else { return }
+        if hold.streams > 1 {
+            holds[signal]?.streams -= 1
+        } else {
+            holds[signal] = nil
+            hold.previous.restore()
+        }
+    }
 }

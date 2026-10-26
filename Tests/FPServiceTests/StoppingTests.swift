@@ -165,4 +165,42 @@ struct StoppingTests {
         // The observer is cancelled with everything else, so it may miss
         // the remaining events (spec R5.1); the result reports it.
     }
+
+    @Test("a cancelled caller keeps the signals through dispose; a signal then ends the process")
+    func callerCancelledHoldsSignals() async throws {
+        let harness = Harness()
+        let log = harness.log
+        let signals = harness.signals
+        let gate = Latch()
+        let result = try await withDeadline {
+            typealias Run = Result<ServiceOutcome, ServiceError<TestError>>
+            return await withTaskGroup(of: Run?.self) { group in
+                group.addTask {
+                    let withService = Service(
+                        probe("a", log, stopGate: gate),
+                        shutdownSignals: [SIGTERM],
+                        shutdownTimeout: nil,
+                        clock: .continuous,
+                        signalStream: { _ in signals },
+                        terminate: { log.append("terminate: \($0)") },
+                        observe: nil
+                    )
+                    return await withService(serving(.ignoreShutdown, log))
+                }
+                await log.wait(for: "serve")
+                group.cancelAll()
+                await log.wait(for: "stop:a")  // cancelled; dispose is stuck on the gate
+                harness.send(SIGTERM)
+                await log.wait(for: "terminate: 15")  // stage 2 began at once: stage 3
+                gate.open()  // the fake terminate does not end the test process
+                return await group.next().flatMap { $0 }
+            }
+        }
+
+        let outcome = try #require(result).get()
+        #expect(outcome.cancellationReason == .caller)
+        let all = log.all
+        let ended = try #require(all.firstIndex(of: "signals ended"))
+        #expect(ended > all.firstIndex(of: "stopped:a")!)
+    }
 }

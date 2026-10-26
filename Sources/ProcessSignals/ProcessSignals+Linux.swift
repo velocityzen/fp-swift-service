@@ -8,7 +8,8 @@
     import Synchronization
 
     // Linux: a `sigaction` handler of our own writes each signal to a pipe,
-    // and one Dispatch read source drains the pipe into the streams.
+    // and one Dispatch read source drains the pipe into every stream that
+    // holds the signal.
     //
     // Dispatch *signal* sources are not used here: libdispatch installs a
     // handler of its own for them and never removes it, so the previous
@@ -24,26 +25,24 @@
     ) async -> Takeover {
         guard let pipe = SignalPipe.shared else {
             continuation.finish()
-            return Takeover(signals: [], previous: [])
+            return Takeover(signals: [], route: nil)
         }
-        var previous: [Disposition] = []
-        for signal in signals {
-            // Route first, so a signal that arrives right after the handler
-            // is installed already has somewhere to go.
-            pipe.route(signal, to: continuation)
-            previous.append(Disposition.handle(signal))
-        }
-        return Takeover(signals: signals, previous: previous)
+        // Route first, so a signal that arrives right after the handler is
+        // installed already has somewhere to go.
+        let route = pipe.route(signals, to: continuation)
+        signals.forEach(hold)
+        return Takeover(signals: signals, route: route)
     }
 
     /// What one stream took over, released when it ends.
     struct Takeover: Sendable {
         let signals: [Int32]
-        let previous: [Disposition]
+        /// `nil` if nothing was taken over.
+        let route: UInt64?
 
         func release() {
-            previous.forEach { $0.restore() }
-            signals.forEach { SignalPipe.shared?.unroute($0) }
+            signals.forEach(letGo)
+            if let route { SignalPipe.shared?.unroute(route) }
         }
     }
 
@@ -70,7 +69,18 @@
         /// `nil` if the pipe could not be made.
         static let shared = SignalPipe()
 
-        private let routes = Mutex<[Int32: AsyncStream<Int32>.Continuation]>([:])
+        /// One stream's signals and where they go.
+        private struct Route {
+            let signals: [Int32]
+            let continuation: AsyncStream<Int32>.Continuation
+        }
+
+        private struct Routes {
+            var lastID: UInt64 = 0
+            var byID: [UInt64: Route] = [:]
+        }
+
+        private let routes = Mutex(Routes())
         private let reader: any DispatchSourceRead
 
         private init?() {
@@ -88,7 +98,8 @@
             reader.resume()
         }
 
-        /// Reads every pending signal byte and yields it to its stream.
+        /// Reads every pending signal byte and yields it to each stream that
+        /// holds the signal.
         private func drain(_ readEnd: Int32) {
             var buffer = [UInt8](repeating: 0, count: 64)
             while true {
@@ -97,18 +108,26 @@
                 routes.withLock { routes in
                     for byte in buffer.prefix(count) {
                         let signal = Int32(byte)
-                        routes[signal]?.yield(signal)
+                        for route in routes.byID.values where route.signals.contains(signal) {
+                            route.continuation.yield(signal)
+                        }
                     }
                 }
             }
         }
 
-        func route(_ signal: Int32, to continuation: AsyncStream<Int32>.Continuation) {
-            routes.withLock { $0[signal] = continuation }
+        /// Delivers `signals` to `continuation` until ``unroute(_:)`` is
+        /// called with the returned id.
+        func route(_ signals: [Int32], to continuation: AsyncStream<Int32>.Continuation) -> UInt64 {
+            routes.withLock { routes in
+                routes.lastID += 1
+                routes.byID[routes.lastID] = Route(signals: signals, continuation: continuation)
+                return routes.lastID
+            }
         }
 
-        func unroute(_ signal: Int32) {
-            _ = routes.withLock { $0.removeValue(forKey: signal) }
+        func unroute(_ id: UInt64) {
+            _ = routes.withLock { $0.byID.removeValue(forKey: id) }
         }
     }
 
@@ -137,7 +156,7 @@
         let action: sigaction
 
         /// Installs ``handleSignal(_:)``, returning the previous disposition.
-        static func handle(_ signal: Int32) -> Disposition {
+        static func takeOver(_ signal: Int32) -> Disposition {
             var handler = sigaction()
             handler.__sigaction_handler.sa_handler = handleSignal
             handler.sa_flags = SA_RESTART

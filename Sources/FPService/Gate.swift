@@ -77,4 +77,13 @@ final class Gate: Sendable {
             }
         }
     }
+
+    /// Suspends until the gate opens, even if the waiting task is cancelled.
+    var openedIgnoringCancellation: Void {
+        get async {
+            await withCheckedContinuation { (waiter: CheckedContinuation<Void, Never>) in
+                onOpen { waiter.resume() }
+            }
+        }
+    }
 }

@@ -24,7 +24,7 @@ let package = Package(
                 .product(name: "FPBracket", package: "fp-swift-bracket"),
             ]
         ),
-        // Process signals as an AsyncStream, on Dispatch signal sources. No
+        // Process signals as an AsyncStream, delivered through Dispatch. No
         // package dependencies.
         .target(name: "ProcessSignals"),
         // The README's example, as a runnable CLI (the library → CLI rule).

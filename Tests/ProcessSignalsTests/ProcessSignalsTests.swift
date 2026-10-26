@@ -80,6 +80,41 @@ struct ProcessSignalsTests {
         #endif
         #expect(disposition(SIGURG) == original)
     }
+
+    @Test("streams can share a signal: each gets it, and the last to end restores it")
+    func shared() async throws {
+        let original = disposition(SIGURG)
+        let (reports, report) = AsyncStream<String>.makeStream()
+        try await deadline {
+            var reports = reports.makeAsyncIterator()
+            let first = Task { await listen("first", report) }
+            #expect(await reports.next() == "first ready")
+            let second = Task { await listen("second", report) }
+            #expect(await reports.next() == "second ready")
+
+            send(SIGURG)
+            let both = [await reports.next(), await reports.next()].compactMap { $0 }
+            #expect(both.sorted() == ["first got", "second got"])
+
+            first.cancel()
+            await first.value
+            #expect(disposition(SIGURG) != original)  // the second still holds it
+            send(SIGURG)
+            #expect(await reports.next() == "second got")
+
+            second.cancel()
+            await second.value
+        }
+        #expect(disposition(SIGURG) == original)
+    }
+}
+
+/// Takes over SIGURG and reports `"<name> ready"`, then `"<name> got"` for
+/// each delivery, until cancelled.
+private func listen(_ name: String, _ report: AsyncStream<String>.Continuation) async {
+    let stream = await processSignals([SIGURG])
+    report.yield("\(name) ready")
+    for await _ in stream { report.yield("\(name) got") }
 }
 
 /// Sends `signal` to this process.

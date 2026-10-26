@@ -44,6 +44,25 @@ struct GateTests {
         #expect(!gate.isOpen)
     }
 
+    @Test("a waiter that ignores cancellation returns only once the gate opens")
+    func ignoringCancellation() async throws {
+        let gate = Gate()
+        let returned = Mutex(false)
+        try await withDeadline {
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    await gate.openedIgnoringCancellation
+                    returned.withLock { $0 = true }
+                }
+                group.cancelAll()
+                await Task.yield()
+                #expect(!returned.withLock { $0 })
+                gate.open()
+            }
+        }
+        #expect(returned.withLock { $0 })
+    }
+
     @Test("opening and cancelling race without losing or doubling a wake-up")
     func race() async throws {
         try await withDeadline(.seconds(20)) {

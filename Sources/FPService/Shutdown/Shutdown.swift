@@ -18,6 +18,23 @@ public final class Shutdown: Sendable {
 
     init() {}
 
+    /// A `Shutdown` outside a ``Service`` run, and the function that requests
+    /// it — for testing a `serve` function on its own:
+    ///
+    /// ```swift
+    /// let (shutdown, request) = Shutdown.makeShutdown()
+    /// async let result = handleRequests(resources, shutdown)
+    /// request()
+    /// #expect(try await result.get() == ())
+    /// ```
+    ///
+    /// `serve` gets only the read-only half, as in a real run. `request` runs
+    /// every handler and wakes every waiter, once; later calls do nothing.
+    public static func makeShutdown() -> (shutdown: Shutdown, request: @Sendable () -> Void) {
+        let shutdown = Shutdown()
+        return (shutdown, { shutdown.trigger() })
+    }
+
     /// Whether graceful shutdown has been requested.
     public var isRequested: Bool { gate.isOpen }
 

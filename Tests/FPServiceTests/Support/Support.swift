@@ -55,9 +55,7 @@ final class Latch: Sendable {
     /// Waits until opened. Ignores cancellation on purpose: a phase blocked on
     /// a latch stays blocked when cancelled, like code that ignores it.
     func wait() async {
-        await withCheckedContinuation { continuation in
-            gate.onOpen { continuation.resume() }
-        }
+        await gate.openedIgnoringCancellation
     }
 }
 

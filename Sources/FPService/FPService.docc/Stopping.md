@@ -12,7 +12,7 @@ The three stages of stopping, and how a service body reacts to them.
 
 Each signal from `shutdownSignals` moves the stop one stage forward. The signals are taken over before acquire and released after dispose, so they can never kill the process mid-cleanup by accident. In stage 2 dispose runs in a cancelled task; cleanup that must finish anyway uses fp-swift-bracket's `BracketAsync(acquire:uncancellableDispose:)`.
 
-The ``ServiceOutcome`` records how it went: ``ServiceOutcome/shutdownReason`` says why stage 1 began, and ``ServiceOutcome/cancellationReason`` why stage 2 happened, if it did. A stop that outlasts `shutdownTimeout` returns ``ServiceError/shutdownTimeout(after:)``.
+The ``ServiceOutcome`` records how it went: ``ServiceOutcome/shutdownReason`` says why stage 1 began, and ``ServiceOutcome/cancellationReason`` why stage 2 happened, if it did. A stop that outlasts `shutdownTimeout` returns ``ServiceError/shutdownTimeout(after:serve:stop:)``, which also carries any `serve` or dispose failure.
 
 ### Cancel the work on shutdown
 

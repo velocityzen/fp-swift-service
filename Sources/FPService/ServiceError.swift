@@ -19,8 +19,10 @@ public indirect enum ServiceError<Failure: Error>: Error, CustomStringConvertibl
     case stopFailed(Failure)
     /// `serve` failed, and so did the dispose that followed.
     case serveAndStopFailed(serve: Failure, stop: Failure)
-    /// The graceful shutdown outlasted `shutdownTimeout`, so the service was cancelled.
-    case shutdownTimeout(after: Duration)
+    /// The graceful shutdown outlasted `shutdownTimeout`, so the service was
+    /// cancelled. Carries the `serve` and dispose failures, if there were any:
+    /// the timeout comes first, as the reason the service was cancelled.
+    case shutdownTimeout(after: Duration, serve: Failure? = nil, stop: Failure? = nil)
 
     /// The phase the failure happened in.
     public var phase: ServicePhase {
@@ -32,15 +34,16 @@ public indirect enum ServiceError<Failure: Error>: Error, CustomStringConvertibl
     }
 
     /// The service's own error, if the failure came from it (the `serve`
-    /// error, for ``serveAndStopFailed(serve:stop:)``).
+    /// error when there are two, for ``serveAndStopFailed(serve:stop:)`` and
+    /// ``shutdownTimeout(after:serve:stop:)``).
     public var failure: Failure? {
         switch self {
             case .startFailed(let error), .serveFailed(let error), .stopFailed(let error):
                 error
             case .serveAndStopFailed(let error, _):
                 error
-            case .shutdownTimeout:
-                nil
+            case .shutdownTimeout(_, let serve, let stop):
+                serve ?? stop
         }
     }
 
@@ -53,8 +56,10 @@ public indirect enum ServiceError<Failure: Error>: Error, CustomStringConvertibl
             case .stopFailed(let error): "Service failed to stop: \(error)"
             case .serveAndStopFailed(let serve, let stop):
                 "Service failed while serving: \(serve); then failed to stop: \(stop)"
-            case .shutdownTimeout(let after):
+            case .shutdownTimeout(let after, let serve, let stop):
                 "Service did not shut down within \(after) and was cancelled."
+                    + (serve.map { " It had failed while serving: \($0)." } ?? "")
+                    + (stop.map { " It failed to stop: \($0)." } ?? "")
         }
     }
 

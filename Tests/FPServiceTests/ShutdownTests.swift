@@ -87,6 +87,23 @@ struct ShutdownTests {
         #expect(value == "drained after the handler")
     }
 
+    @Test("makeShutdown gives a shutdown and the function that requests it, once")
+    func makeShutdown() async throws {
+        let (shutdown, request) = Shutdown.makeShutdown()
+        let fired = Mutex(0)
+        shutdown.onShutdown { fired.withLock { $0 += 1 } }
+        #expect(!shutdown.isRequested)
+        try await withDeadline {
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await shutdown.requested }
+                group.addTask { request() }
+            }
+        }
+        request()
+        #expect(shutdown.isRequested)
+        #expect(fired.withLock { $0 } == 1)
+    }
+
     @Test("a scoped handler fires at once if shutdown was already requested")
     func handlerAlreadyRequested() async {
         let shutdown = Shutdown()
