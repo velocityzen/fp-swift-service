@@ -17,13 +17,12 @@ import FPService
 @main
 enum ServiceFixture {
     static func main() async {
-        setvbuf(stdout, nil, _IOLBF, 0)
         guard CommandLine.arguments.count == 2, let signal = Int32(CommandLine.arguments[1]) else {
-            print("usage: ServiceFixture <signal number>")
+            printFlushed("usage: ServiceFixture <signal number>")
             exit(2)
         }
         await runUntilEnded(signal)
-        print("returned")  // never: stage 3 ends the process first
+        printFlushed("returned")  // never: stage 3 ends the process first
     }
 }
 
@@ -31,7 +30,7 @@ enum ServiceFixture {
 /// `sending`.
 func runUntilEnded(_ signal: Int32) async {
     let withService = Service(stuck(), shutdownSignals: [signal]) { events in
-        for await case .success(let event) in events { print(event) }
+        for await case .success(let event) in events { printFlushed("\(event)") }
     }
     _ = await withService { _, _ in
         try? await Task.sleep(for: .seconds(3600))  // returns when cancelled
@@ -44,9 +43,17 @@ func stuck() -> BracketAsync<Void, Never> {
     BracketAsync(
         acquire: { .success(()) },
         dispose: { _ in
-            print("disposing")
+            printFlushed("disposing")
             await withUnsafeContinuation { (_: UnsafeContinuation<Void, Never>) in }
             return .success(())
         }
     )
+}
+
+/// Prints `line` and flushes it at once, so the test reading the pipe sees it
+/// before the process ends. (`fflush(nil)` rather than line-buffering
+/// `stdout`: glibc declares `stdout` a mutable global, which Swift 6 rejects.)
+func printFlushed(_ line: String) {
+    print(line)
+    fflush(nil)
 }
