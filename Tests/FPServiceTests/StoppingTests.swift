@@ -29,10 +29,9 @@ struct StoppingTests {
         let result = try await run(
             harness,
             waitingFor: ["serve"],
-            then: { harness.send(SIGTERM) }
-        ) {
-            probe("a", harness.log)
-        }
+            then: { harness.send(SIGTERM) },
+            service: { probe("a", harness.log) }
+        )
 
         let outcome = try result.get()
         #expect(outcome.shutdownReason == .signal(SIGTERM))
@@ -53,10 +52,9 @@ struct StoppingTests {
                 harness.send(SIGTERM)
                 await harness.log.wait(for: "event: shutting down: signal 15")
                 harness.send(SIGINT)
-            }
-        ) {
-            probe("a", harness.log)
-        }
+            },
+            service: { probe("a", harness.log) }
+        )
 
         let outcome = try result.get()
         #expect(outcome.shutdownReason == .signal(SIGTERM))
@@ -83,10 +81,9 @@ struct StoppingTests {
                 harness.send(SIGTERM)
                 await log.wait(for: "terminate: 15")
                 gate.open()  // the fake terminate does not end the test process
-            }
-        ) {
-            probe("a", log, stopGate: gate)
-        }
+            },
+            service: { probe("a", log, stopGate: gate) }
+        )
 
         #expect(log.with(prefix: "terminate:") == ["terminate: 15"])
         #expect(log.events.filter { $0 == "signal 15" }.count == 3)
@@ -107,10 +104,9 @@ struct StoppingTests {
                 harness.send(SIGTERM)
                 await log.wait(for: "terminate: 15")
                 gate.open()
-            }
-        ) {
-            probe("a", log, stopGate: gate)
-        }
+            },
+            service: { probe("a", log, stopGate: gate) }
+        )
 
         let outcome = try result.get()
         #expect(outcome.shutdownReason == .serveReturned)
@@ -157,7 +153,7 @@ struct StoppingTests {
                 }
                 _ = await group.next()
                 group.cancelAll()
-                return await group.next() ?? nil
+                return await group.next().flatMap { $0 }
             }
         }
 

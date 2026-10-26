@@ -1,0 +1,75 @@
+# SwiftLint configuration for fp-swift-service.
+# Run: `swiftlint`                — list violations
+# Run: `swiftlint --strict`       — fail on any warning (CI)
+# Run: `swiftlint --fix`          — auto-fix where possible
+
+# Where SwiftLint should NOT look.
+excluded:
+  - .build
+  - Package.swift
+  - Sources/FPService/FPService.docc
+  - Sources/ProcessSignals/ProcessSignals.docc
+
+# Rules disabled as in the other fp-swift packages: short generic parameters
+# and loop names (`R`, `E`, `a`, `i`) break `identifier_name`.
+disabled_rules:
+  - identifier_name
+  - large_tuple
+  - line_length # Long generic signatures are fine.
+  - todo # We have none, but don't want to fail if someone writes one in passing.
+  # Formatting choices owned by `swift-format` — let it win, don't double-enforce here.
+  - trailing_comma
+  - switch_case_alignment # we use `indentSwitchCaseLabels: true` in .swift-format
+  - opening_brace # swift-format places `{` on its own line for long generic clauses
+  - closure_parameter_position # swift-format may move closure params to a new line
+
+# Opt-in rules that catch real bugs / style nits.
+opt_in_rules:
+  - empty_count
+  - empty_string
+  - explicit_init
+  - first_where
+  - last_where
+  - sorted_first_last
+  - unused_optional_binding
+  - redundant_nil_coalescing
+  - prefer_zero_over_explicit_init
+  - toggle_bool
+  - unneeded_parentheses_in_closure_argument
+  - yoda_condition
+
+# Analyzer rules need full type information — they run under `swiftlint analyze`, not plain `swiftlint`.
+analyzer_rules:
+  - explicit_self # Encourages `self.` only where actually needed.
+
+# Tunings for kept rules.
+type_name:
+  min_length:
+    warning: 1
+    error: 1
+  max_length:
+    warning: 50
+    error: 60
+
+trailing_whitespace:
+  ignores_empty_lines: true
+
+cyclomatic_complexity:
+  warning: 12
+  error: 20
+
+function_body_length:
+  warning: 80
+  error: 120
+
+type_body_length:
+  warning: 250
+  error: 350
+
+file_length:
+  warning: 400
+  error: 600
+  ignore_comment_only_lines: true
+
+nesting:
+  type_level: 3

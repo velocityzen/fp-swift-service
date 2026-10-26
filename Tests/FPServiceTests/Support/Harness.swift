@@ -37,7 +37,7 @@ func run<Resource>(
     serve mode: ServeMode? = .untilShutdown,
     waitingFor entries: [String] = [],
     then act: @escaping @Sendable () async -> Void = {},
-    _ service: @escaping @Sendable () -> BracketAsync<Resource, TestError>
+    service: @escaping @Sendable () -> BracketAsync<Resource, TestError>
 ) async throws -> Result<ServiceOutcome, ServiceError<TestError>> {
     try await withDeadline {
         await withTaskGroup(of: Void.self) { group in
@@ -85,20 +85,32 @@ func run<Resource>(
 /// A short, stable name for an event, for comparing sequences.
 func describe(_ event: Result<ServiceEvent, ServiceError<TestError>>) -> String {
     switch event {
-        case .success(.started): "started"
-        case .success(.ready): "ready"
-        case .success(.signal(let signal)): "signal \(signal)"
-        case .success(.shuttingDown(.serveReturned)): "shutting down: serve returned"
-        case .success(.shuttingDown(.signal(let signal))): "shutting down: signal \(signal)"
-        case .success(.cancelling(.signal(let signal))): "cancelling: signal \(signal)"
-        case .success(.cancelling(.shutdownTimeout)): "cancelling: shutdown timeout"
-        case .success(.cancelling(.caller)): "cancelling: caller"
-        case .success(.stopped): "stopped"
-        case .failure(.startFailed): "failed: start"
-        case .failure(.serveFailed): "failed: serve"
-        case .failure(.stopFailed): "failed: stop"
-        case .failure(.serveAndStopFailed): "failed: serve and stop"
-        case .failure(.shutdownTimeout): "failed: shutdown timeout"
+        case .success(let event): describe(event)
+        case .failure(let error): describe(error)
+    }
+}
+
+private func describe(_ event: ServiceEvent) -> String {
+    switch event {
+        case .started: "started"
+        case .ready: "ready"
+        case .signal(let signal): "signal \(signal)"
+        case .shuttingDown(.serveReturned): "shutting down: serve returned"
+        case .shuttingDown(.signal(let signal)): "shutting down: signal \(signal)"
+        case .cancelling(.signal(let signal)): "cancelling: signal \(signal)"
+        case .cancelling(.shutdownTimeout): "cancelling: shutdown timeout"
+        case .cancelling(.caller): "cancelling: caller"
+        case .stopped: "stopped"
+    }
+}
+
+private func describe(_ error: ServiceError<TestError>) -> String {
+    switch error {
+        case .startFailed: "failed: start"
+        case .serveFailed: "failed: serve"
+        case .stopFailed: "failed: stop"
+        case .serveAndStopFailed: "failed: serve and stop"
+        case .shutdownTimeout: "failed: shutdown timeout"
     }
 }
 

@@ -21,10 +21,9 @@ struct EventTests {
                 harness.send(SIGTERM)
                 await harness.log.wait(for: "event: shutting down: signal 15")
                 harness.send(SIGTERM)
-            }
-        ) {
-            probe("a", harness.log)
-        }
+            },
+            service: { probe("a", harness.log) }
+        )
 
         #expect(
             harness.log.events == [

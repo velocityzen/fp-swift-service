@@ -18,53 +18,32 @@
 /// between platforms (`SIGUSR1` is 30 on Darwin and 10 on Linux). What each
 /// signal means is in <doc:SignalReference>.
 public func signalName(_ signal: Int32) -> String {
-    switch signal {
-        case SIGHUP: "SIGHUP"
-        case SIGINT: "SIGINT"
-        case SIGQUIT: "SIGQUIT"
-        case SIGILL: "SIGILL"
-        case SIGTRAP: "SIGTRAP"
-        case SIGABRT: "SIGABRT"
-        case SIGFPE: "SIGFPE"
-        case SIGKILL: "SIGKILL"
-        case SIGBUS: "SIGBUS"
-        case SIGSEGV: "SIGSEGV"
-        case SIGSYS: "SIGSYS"
-        case SIGPIPE: "SIGPIPE"
-        case SIGALRM: "SIGALRM"
-        case SIGTERM: "SIGTERM"
-        case SIGURG: "SIGURG"
-        case SIGSTOP: "SIGSTOP"
-        case SIGTSTP: "SIGTSTP"
-        case SIGCONT: "SIGCONT"
-        case SIGCHLD: "SIGCHLD"
-        case SIGTTIN: "SIGTTIN"
-        case SIGTTOU: "SIGTTOU"
-        case SIGIO: "SIGIO"
-        case SIGXCPU: "SIGXCPU"
-        case SIGXFSZ: "SIGXFSZ"
-        case SIGVTALRM: "SIGVTALRM"
-        case SIGPROF: "SIGPROF"
-        case SIGWINCH: "SIGWINCH"
-        case SIGUSR1: "SIGUSR1"
-        case SIGUSR2: "SIGUSR2"
-        default: platformSignalName(signal) ?? "signal \(signal)"
-    }
+    signalNames.first { $0.signal == signal }?.name ?? "signal \(signal)"
 }
 
-/// Signals only one platform has.
-private func platformSignalName(_ signal: Int32) -> String? {
-    #if canImport(Darwin)
-        switch signal {
-            case SIGINFO: "SIGINFO"
-            case SIGEMT: "SIGEMT"
-            default: nil
-        }
-    #else
-        switch signal {
-            case SIGPWR: "SIGPWR"
-            case SIGSTKFLT: "SIGSTKFLT"
-            default: nil
-        }
-    #endif
-}
+/// Every signal ``signalName(_:)`` knows, against this platform's constants.
+private let signalNames: [(signal: Int32, name: String)] =
+    [
+        (SIGHUP, "SIGHUP"), (SIGINT, "SIGINT"), (SIGQUIT, "SIGQUIT"),
+        (SIGILL, "SIGILL"), (SIGTRAP, "SIGTRAP"), (SIGABRT, "SIGABRT"),
+        (SIGFPE, "SIGFPE"), (SIGKILL, "SIGKILL"), (SIGBUS, "SIGBUS"),
+        (SIGSEGV, "SIGSEGV"), (SIGSYS, "SIGSYS"), (SIGPIPE, "SIGPIPE"),
+        (SIGALRM, "SIGALRM"), (SIGTERM, "SIGTERM"), (SIGURG, "SIGURG"),
+        (SIGSTOP, "SIGSTOP"), (SIGTSTP, "SIGTSTP"), (SIGCONT, "SIGCONT"),
+        (SIGCHLD, "SIGCHLD"), (SIGTTIN, "SIGTTIN"), (SIGTTOU, "SIGTTOU"),
+        (SIGIO, "SIGIO"), (SIGXCPU, "SIGXCPU"), (SIGXFSZ, "SIGXFSZ"),
+        (SIGVTALRM, "SIGVTALRM"), (SIGPROF, "SIGPROF"), (SIGWINCH, "SIGWINCH"),
+        (SIGUSR1, "SIGUSR1"), (SIGUSR2, "SIGUSR2"),
+    ] + platformSignalNames
+
+#if canImport(Darwin)
+    /// Signals only Darwin has.
+    private let platformSignalNames: [(signal: Int32, name: String)] = [
+        (SIGINFO, "SIGINFO"), (SIGEMT, "SIGEMT"),
+    ]
+#else
+    /// Signals only Linux has.
+    private let platformSignalNames: [(signal: Int32, name: String)] = [
+        (SIGPWR, "SIGPWR"), (SIGSTKFLT, "SIGSTKFLT"),
+    ]
+#endif

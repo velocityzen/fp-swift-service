@@ -25,10 +25,9 @@ struct TimeoutTests {
                 harness.send(SIGTERM)
                 await clock.waitForSleepers()
                 clock.advance(by: .seconds(10))
-            }
-        ) {
-            probe("a", harness.log)
-        }
+            },
+            service: { probe("a", harness.log) }
+        )
 
         guard case .shutdownTimeout(after: .seconds(10)) = try #require(result.failure) else {
             Issue.record("expected shutdownTimeout(10s), got \(result)")
@@ -59,10 +58,9 @@ struct TimeoutTests {
                 clock.advance(by: .seconds(5))
                 await harness.log.wait(for: "event: cancelling: shutdown timeout")
                 gate.open()  // the probe's dispose ignores cancellation
-            }
-        ) {
-            probe("a", harness.log, stopGate: gate)
-        }
+            },
+            service: { probe("a", harness.log, stopGate: gate) }
+        )
 
         guard case .shutdownTimeout(after: .seconds(5)) = try #require(result.failure) else {
             Issue.record("expected shutdownTimeout(5s), got \(result)")
@@ -85,10 +83,9 @@ struct TimeoutTests {
                 await clock.waitForSleepers()
                 clock.advance(by: .seconds(3))
                 gate.open()
-            }
-        ) {
-            probe("a", harness.log, stopGate: gate)
-        }
+            },
+            service: { probe("a", harness.log, stopGate: gate) }
+        )
 
         #expect(
             try result.get()

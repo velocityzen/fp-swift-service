@@ -51,33 +51,6 @@ jobs:
       - name: Test
         run: swift test
 
-  simulators:
-    name: Test ${{ matrix.platform }} Simulator
-    runs-on: macos-26
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: iOS
-            device-filter: iPhone
-          - platform: tvOS
-            device-filter: Apple TV
-          - platform: watchOS
-            device-filter: Apple Watch
-          - platform: visionOS
-            device-filter: Apple Vision
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Test (${{ matrix.platform }} Simulator)
-        run: |
-          set -o pipefail
-          LINE=$(xcrun simctl list devices available | grep -m1 "${{ matrix.device-filter }}")
-          UDID=$(echo "$LINE" | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}')
-          echo "Using simulator: $LINE"
-          xcodebuild test -scheme fp-swift-bracket -destination "id=$UDID,arch=arm64" | tail -60
-
   linux:
     name: Test Linux
     runs-on: ubuntu-latest

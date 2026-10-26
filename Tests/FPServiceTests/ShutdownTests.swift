@@ -30,7 +30,8 @@ struct ShutdownTests {
     func handlerScope() async {
         let shutdown = Shutdown()
         let fired = Mutex(false)
-        let value = await withShutdownHandler(on: shutdown, { fired.withLock { $0 = true } }) { 42 }
+        let handler: @Sendable () -> Void = { fired.withLock { $0 = true } }
+        let value = await withShutdownHandler(on: shutdown, handler) { 42 }
         shutdown.trigger()
         #expect(value == 42)
         #expect(!fired.withLock { $0 })
@@ -76,8 +77,9 @@ struct ShutdownTests {
     func handlerFires() async throws {
         let shutdown = Shutdown()
         let fired = Mutex(false)
+        let handler: @Sendable () -> Void = { fired.withLock { $0 = true } }
         let value = try await withDeadline {
-            await withShutdownHandler(on: shutdown, { fired.withLock { $0 = true } }) {
+            await withShutdownHandler(on: shutdown, handler) {
                 shutdown.trigger()
                 return fired.withLock { $0 } ? "drained after the handler" : "handler did not fire"
             }
@@ -90,7 +92,8 @@ struct ShutdownTests {
         let shutdown = Shutdown()
         shutdown.trigger()
         let order = Mutex<[String]>([])
-        await withShutdownHandler(on: shutdown, { order.withLock { $0.append("handler") } }) {
+        let handler: @Sendable () -> Void = { order.withLock { $0.append("handler") } }
+        await withShutdownHandler(on: shutdown, handler) {
             order.withLock { $0.append("operation") }
         }
         #expect(order.withLock { $0 } == ["handler", "operation"])

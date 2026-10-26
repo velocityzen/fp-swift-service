@@ -58,7 +58,7 @@ struct ProcessSignalsTests {
                 // stream does not end on its own, so cancelling is the test.
                 while disposition(SIGURG) == original { await Task.yield() }
                 group.cancelAll()
-                return await group.next() ?? nil
+                return await group.next().flatMap { $0 }
             }
         }
         #expect(during == handlerBits(SIG_IGN))

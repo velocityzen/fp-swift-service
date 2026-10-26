@@ -63,10 +63,9 @@ struct LifecycleTests {
             harness,
             serve: nil,
             waitingFor: ["event: ready"],
-            then: { harness.send(SIGTERM) }
-        ) {
-            probe("a", harness.log)
-        }
+            then: { harness.send(SIGTERM) },
+            service: { probe("a", harness.log) }
+        )
         #expect(try result.get().shutdownReason == .signal(SIGTERM))
     }
 
