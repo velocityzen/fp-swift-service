@@ -12,7 +12,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
         .package(url: "https://github.com/velocityzen/fp-swift", from: "3.3.0"),
-        .package(url: "https://github.com/velocityzen/fp-swift-bracket", from: "1.2.0"),
+        .package(url: "https://github.com/velocityzen/fp-swift-bracket", from: "1.3.0"),
     ],
     targets: [
         // The core: FP, FPBracket and ProcessSignals. No Foundation.

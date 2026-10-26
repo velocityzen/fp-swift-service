@@ -4,7 +4,6 @@
     import Glibc
 #endif
 import ProcessSignals
-import Synchronization
 import Testing
 
 /// These send real signals to the test process. They use SIGWINCH and
@@ -58,18 +57,20 @@ struct ProcessSignalsTests {
     @Test("ending the stream restores the disposition")
     func restores() async throws {
         let original = disposition(SIGURG)
-        let installed = Mutex(false)
+        // The consumer reports `installed` through a stream: its continuation
+        // is Sendable, so the child task captures nothing non-copyable.
+        let (installed, report) = AsyncStream<Void>.makeStream()
         let during = try await deadline {
             await withTaskGroup(of: UInt?.self) { group in
                 group.addTask {
                     let stream = await processSignals([SIGURG])
                     let during = disposition(SIGURG)
-                    installed.withLock { $0 = true }
+                    report.yield()
                     for await _ in stream {}  // ends only when cancelled
                     return during
                 }
                 // The stream does not end on its own, so cancelling is the test.
-                while !installed.withLock({ $0 }) { await Task.yield() }
+                for await _ in installed { break }
                 group.cancelAll()
                 return await group.next().flatMap { $0 }
             }
