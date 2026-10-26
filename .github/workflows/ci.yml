@@ -100,6 +100,10 @@ jobs:
       - name: Test
         run: swift test
 
+      # macOS only. On Linux, a contended `Mutex` (Synchronization) is taken
+      # in `_lockSlow`, which lives in the uninstrumented standard library,
+      # so TSan misses that acquire and reports races on state the mutex
+      # guards (Swift 6.4.1).
       - name: Test with Thread Sanitizer
         run: swift test --sanitize=thread
 
@@ -166,25 +170,6 @@ jobs:
 
       - name: Test
         run: swift test
-
-  linux-tsan:
-    name: Test Linux with Thread Sanitizer
-    runs-on: ubuntu-latest
-    env:
-      SWIFT_VERSION: "6.4"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      # TSan keeps its shadow memory at fixed addresses, which the kernel's
-      # full ASLR entropy can collide with ("unexpected memory mapping").
-      # A container can't change vm.* settings, so this job runs on the host
-      # and starts the Swift container itself.
-      - name: Lower ASLR entropy for TSan
-        run: sudo sysctl -w vm.mmap_rnd_bits=28
-
-      - name: Test with Thread Sanitizer
-        run: docker run --rm -v "$PWD:/package" -w /package "swift:$SWIFT_VERSION" swift test --sanitize=thread
 
   musl:
     name: Build static Linux (Musl)
