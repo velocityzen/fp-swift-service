@@ -173,12 +173,27 @@ jobs:
 
       # The Linux signal code only builds here, so this is the only coverage
       # of it. Printed to the log and the job summary, with no threshold.
+      #
+      # The test code is in `<name>.xctest` with the native build system
+      # (Swift 6.3). With swift-build (6.4) a test product is a thin
+      # `<name>-test-runner` launcher and a `<name>.so` beside it, and the
+      # code, so its coverage, is in the `.so`.
       - name: Coverage
         run: |
           bin="$(swift build --show-bin-path)"
           profdata="$(dirname "$(swift test --show-codecov-path)")/default.profdata"
-          objects="$(find "$bin" -maxdepth 1 -type f -name '*.xctest' -printf '-object=%p ')"
-          test -n "$objects"
+          objects=""
+          for xctest in "$bin"/*.xctest; do
+            if [ -f "$xctest" ]; then objects="$objects -object=$xctest"; fi
+          done
+          for runner in "$bin"/*-test-runner; do
+            if [ -f "$runner" ]; then objects="$objects -object=${runner%-test-runner}.so"; fi
+          done
+          if [ -z "$objects" ]; then
+            echo "No test binaries in $bin:"
+            ls -la "$bin"
+            exit 1
+          fi
           report="$(llvm-cov report $objects -instr-profile="$profdata" -ignore-filename-regex='/(\.build|Tests)/')"
           echo "$report"
           printf '### Coverage: Linux %s, Swift %s\n\n```\n%s\n```\n' \
