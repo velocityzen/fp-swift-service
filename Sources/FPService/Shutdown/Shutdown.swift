@@ -6,13 +6,8 @@
 ///
 /// React to it with ``withCancellation(on:_:)`` (cancel the work) or
 /// ``withShutdownHandler(on:_:operation:)`` (call the work's own stop), or
-/// read it directly with ``isRequested`` and ``requested``:
-///
-/// ```swift
-/// await withService { resources, shutdown in
-///     await withCancellation(on: shutdown, resources.queue.consume)
-/// }
-/// ```
+/// read it directly with ``isRequested`` and ``requested``. <doc:Stopping>
+/// shows each.
 public final class Shutdown: Sendable {
     let gate = Gate()
 
@@ -25,7 +20,7 @@ public final class Shutdown: Sendable {
     /// let (shutdown, request) = Shutdown.makeShutdown()
     /// async let result = handleRequests(resources, shutdown)
     /// request()
-    /// #expect(try await result.get() == ())
+    /// if case .failure(let error) = await result { Issue.record("\(error)") }
     /// ```
     ///
     /// `serve` gets only the read-only half, as in a real run. `request` runs
@@ -43,7 +38,7 @@ public final class Shutdown: Sendable {
     /// Returns at once if it already was. Also returns when the waiting task
     /// is cancelled — check `Task.isCancelled` if the difference matters.
     public var requested: Void {
-        get async { await gate.opened }
+        get async { await gate.openedOrCancelled }
     }
 
     /// Requests graceful shutdown: runs every handler and wakes every waiter,

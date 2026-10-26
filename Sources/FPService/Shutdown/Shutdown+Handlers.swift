@@ -6,8 +6,14 @@
 /// (To simply cancel the work instead, use ``withCancellation(on:_:)``.)
 ///
 /// ```swift
-/// await withShutdownHandler(on: shutdown, server.beginGracefulShutdown) {
-///     await server.run()     // returns once its own graceful shutdown completes
+/// /// Lets the server finish the request in flight instead of cancelling it.
+/// func drainRequests(_ resources: (Database, Server), _ shutdown: Shutdown) async -> Result<
+///     Void, ExampleError
+/// > {
+///     let (_, server) = resources
+///     return await withShutdownHandler(on: shutdown, server.beginGracefulShutdown) {
+///         await server.run()
+///     }
 /// }
 /// ```
 ///

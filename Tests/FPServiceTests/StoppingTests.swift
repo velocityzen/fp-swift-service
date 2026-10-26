@@ -7,6 +7,7 @@
 #endif
 import FPBracket
 @testable import FPService
+import ServiceTestSupport
 import Testing
 
 /// R3. Graceful stop, R4. Signals, R5. Stage 2.
@@ -178,18 +179,41 @@ struct StoppingTests {
         )
     }
 
-    @Test("signals are taken over before acquire and released after dispose")
+    @Test("signals are subscribed to before acquire and unsubscribed from after dispose")
     func signalWindow() async throws {
         let harness = Harness()
         _ = try await run(harness, shutdownSignals: [SIGTERM, SIGINT], serve: .finish) {
             probe("a", harness.log)
         }
         let all = harness.log.all
-        let taken = try #require(all.firstIndex(of: "signals taken: [15, 2]"))
+        let subscribed = try #require(all.firstIndex(of: "signals subscribed: [15, 2]"))
         let ended = try #require(all.firstIndex(of: "signals ended"))
-        #expect(taken < all.firstIndex(of: "start:a")!)
+        #expect(subscribed < all.firstIndex(of: "start:a")!)
         #expect(ended > all.firstIndex(of: "stopped:a")!)
         #expect(ended < all.firstIndex(of: "returned")!)
+    }
+
+    @Test("a caller cancelled before the call: acquire, serve and dispose still run, cancelled")
+    func callerCancelledBefore() async throws {
+        let log = Recorder()
+        let result = try await withDeadline {
+            await Task {
+                withUnsafeCurrentTask { $0?.cancel() }
+                let withService = Service(probe("a", log))
+                return await withService(serving(.untilShutdown, log))
+            }
+            .value
+        }
+
+        let outcome = try result.get()
+        #expect(outcome.shutdownReason == nil)
+        #expect(outcome.cancellationReason == .caller)
+        #expect(
+            log.all == [
+                "start:a", "serve", "served: cancelled", "shutdown requested: false", "stop:a",
+                "stopped:a",
+            ]
+        )
     }
 
     @Test("cancelling the caller cancels at once and never requests shutdown")
@@ -238,7 +262,7 @@ struct StoppingTests {
                         shutdownSignals: [SIGTERM],
                         shutdownTimeout: nil,
                         clock: .continuous,
-                        signalStream: { _ in signals },
+                        signalStream: { requested in (signals, requested, []) },
                         terminate: { log.append("terminate: \($0)") },
                         observe: nil
                     )

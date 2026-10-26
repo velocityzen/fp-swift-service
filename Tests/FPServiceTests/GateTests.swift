@@ -1,4 +1,5 @@
 @testable import FPService
+import ServiceTestSupport
 import Synchronization
 import Testing
 
@@ -12,7 +13,7 @@ struct GateTests {
         gate.onOpen { order.withLock { $0.append(2) } }
         try await withDeadline {
             await withTaskGroup(of: Void.self) { group in
-                group.addTask { await gate.opened }
+                group.addTask { await gate.openedOrCancelled }
                 group.addTask { gate.open() }
             }
         }
@@ -37,7 +38,7 @@ struct GateTests {
         let gate = Gate()
         try await withDeadline {
             await withTaskGroup(of: Void.self) { group in
-                group.addTask { await gate.opened }
+                group.addTask { await gate.openedOrCancelled }
                 group.cancelAll()
             }
         }
@@ -69,7 +70,7 @@ struct GateTests {
             for _ in 0..<500 {
                 let gate = Gate()
                 await withTaskGroup(of: Void.self) { group in
-                    for _ in 0..<4 { group.addTask { await gate.opened } }
+                    for _ in 0..<4 { group.addTask { await gate.openedOrCancelled } }
                     group.addTask { gate.open() }
                     group.cancelAll()
                 }

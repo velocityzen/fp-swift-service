@@ -4,10 +4,10 @@
 
     /// Darwin: each signal is set to `SIG_IGN`, so its default action never
     /// runs, while kqueue — under a Dispatch signal source — still records it.
-    func takeOver(
+    func subscribe(
         _ signals: [Int32],
         delivering continuation: AsyncStream<Int32>.Continuation
-    ) async -> Takeover {
+    ) async -> Subscription {
         var sources: [any DispatchSourceSignal] = []
 
         for signal in signals {
@@ -27,36 +27,36 @@
             // Ignored only once kqueue records it: a signal sent in between
             // has its previous effect and is delivered too, rather than
             // being ignored and lost.
-            hold(signal)
+            addSubscriber(to: signal)
             sources.append(source)
         }
 
-        return Takeover(signals: signals, sources: sources)
+        return Subscription(signals: signals, sources: sources)
     }
 
-    /// What one stream took over, released when it ends.
-    struct Takeover: Sendable {
+    /// What one stream subscribed to, released when it ends.
+    struct Subscription: Sendable {
         let signals: [Int32]
         let sources: [any DispatchSourceSignal]
 
         func release() {
             sources.forEach { $0.cancel() }
-            signals.forEach(letGo)
+            signals.forEach(removeSubscriber(from:))
         }
     }
 
     /// One serial queue for every signal handler; handlers only yield.
     private let signalQueue = DispatchQueue(label: "ProcessSignals")
 
-    /// A signal's disposition from before the stream took it over.
+    /// A signal's disposition from before its first subscriber.
     struct Disposition: @unchecked Sendable {  // `sigaction` holds a C function pointer
         let signal: Int32
         let action: sigaction
 
         /// Sets `SIG_IGN`, returning the previous disposition.
-        static func takeOver(_ signal: Int32) -> Disposition {
+        static func create(_ signal: Int32) -> Disposition {
             var ignore = sigaction()
-            ignore.__sigaction_u.__sa_handler = SIG_IGN
+            ignore.handler = SIG_IGN
             var previous = sigaction()
             sigaction(signal, &ignore, &previous)
             return Disposition(signal: signal, action: previous)

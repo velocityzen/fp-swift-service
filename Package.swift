@@ -7,7 +7,6 @@ let package = Package(
     products: [
         .library(name: "FPService", targets: ["FPService"]),
         .library(name: "ProcessSignals", targets: ["ProcessSignals"]),
-        .executable(name: "Example", targets: ["Example"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
@@ -24,10 +23,7 @@ let package = Package(
                 .product(name: "FPBracket", package: "fp-swift-bracket"),
             ]
         ),
-        // Process signals as an AsyncStream, delivered through Dispatch. No
-        // package dependencies.
         .target(name: "ProcessSignals"),
-        // The README's example, as a runnable CLI (the library → CLI rule).
         .executableTarget(
             name: "Example",
             dependencies: [
@@ -47,17 +43,26 @@ let package = Package(
             ],
             path: "Tests/ServiceFixture"
         ),
+        .target(
+            name: "ServiceTestSupport",
+            dependencies: [
+                "ProcessSignals",
+                .product(name: "FP", package: "fp-swift"),
+            ],
+            path: "Tests/ServiceTestSupport"
+        ),
         .testTarget(
             name: "FPServiceTests",
             dependencies: [
                 "FPService",
+                "ServiceTestSupport",
                 .product(name: "FP", package: "fp-swift"),
                 .product(name: "FPBracket", package: "fp-swift-bracket"),
             ]
         ),
         .testTarget(
             name: "ProcessSignalsTests",
-            dependencies: ["ProcessSignals"]
+            dependencies: ["ProcessSignals", "ServiceTestSupport"]
         ),
     ],
     swiftLanguageModes: [.v6]

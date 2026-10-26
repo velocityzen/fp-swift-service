@@ -150,6 +150,37 @@ struct TimeoutTests {
                 )
         )
     }
+
+    @Test("a timeout during acquire cancels it; its failure is the result")
+    func timedOutDuringAcquire() async throws {
+        let harness = Harness()
+        let clock = ManualClock()
+        let gate = Latch()
+        let log = harness.log
+        let result = try await run(
+            harness,
+            shutdownTimeout: .seconds(5),
+            clock: ServiceClock(clock),
+            waitingFor: ["start:a"],
+            then: {
+                harness.send(SIGTERM)
+                await clock.waitForSleepers()
+                clock.advance(by: .seconds(5))
+                await log.wait(for: "event: cancelling: shutdown timeout")
+                gate.open()  // the probe's acquire ignores cancellation, then fails
+            },
+            service: { probe("a", log, start: .failure(.boom("start")), startGate: gate) }
+        )
+
+        #expect(result.failure == .startFailed(.boom("start")))
+        #expect(
+            log.events == [
+                "started", "signal 15", "shutting down: signal 15",
+                "cancelling: shutdown timeout", "failed: shutdown timeout", "failed: start",
+            ]
+        )
+        #expect(!log.all.contains("serve"))
+    }
 }
 
 /// Runs a service whose dispose is still stuck when the 5-second timeout

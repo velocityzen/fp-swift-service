@@ -9,40 +9,41 @@
 
     // Linux: a `sigaction` handler of our own writes each signal to a pipe,
     // and one Dispatch read source drains the pipe into every stream that
-    // holds the signal.
+    // is subscribed to the signal.
     //
     // Dispatch *signal* sources are not used here: libdispatch installs a
     // handler of its own for them and never removes it, so the previous
     // disposition could not be restored (swift-corelibs-libdispatch,
     // src/event/event_epoll.c).
 
-    /// Takes each signal over with ``handleSignal(_:)``, routing it to
+    /// Subscribes to each signal with ``handleSignal(_:)``, routing it to
     /// `continuation`. If no pipe could be made (the process is out of file
-    /// descriptors), nothing is taken over and the stream ends at once.
-    func takeOver(
+    /// descriptors), nothing is subscribed to and the stream ends at once.
+    func subscribe(
         _ signals: [Int32],
         delivering continuation: AsyncStream<Int32>.Continuation
-    ) async -> Takeover {
-        guard let pipe = SignalPipe.shared else {
+    ) async -> Subscription {
+        guard let pipe = SignalPipe.shared() else {
             continuation.finish()
-            return Takeover(signals: [], route: nil)
+            return Subscription(signals: [], pipe: nil, route: 0)
         }
         // Route first, so a signal that arrives right after the handler is
         // installed already has somewhere to go.
         let route = pipe.route(signals, to: continuation)
-        signals.forEach(hold)
-        return Takeover(signals: signals, route: route)
+        signals.forEach(addSubscriber(to:))
+        return Subscription(signals: signals, pipe: pipe, route: route)
     }
 
-    /// What one stream took over, released when it ends.
-    struct Takeover: Sendable {
+    /// What one stream subscribed to, released when it ends.
+    struct Subscription: Sendable {
         let signals: [Int32]
-        /// `nil` if nothing was taken over.
-        let route: UInt64?
+        /// `nil` if nothing was subscribed to.
+        fileprivate let pipe: SignalPipe?
+        fileprivate let route: UInt64
 
         func release() {
-            signals.forEach(letGo)
-            if let route { SignalPipe.shared?.unroute(route) }
+            signals.forEach(removeSubscriber(from:))
+            pipe?.unroute(route)
         }
     }
 
@@ -66,8 +67,16 @@
     /// the routes are behind a mutex. Linux's Dispatch module does not mark
     /// source types `Sendable`.
     private final class SignalPipe: @unchecked Sendable {
-        /// `nil` if the pipe could not be made.
-        static let shared = SignalPipe()
+        /// The pipe; `nil` while it can't be made (the process is out of file
+        /// descriptors), so that a later stream tries again.
+        static func shared() -> SignalPipe? {
+            current.withLock { pipe in
+                if pipe == nil { pipe = SignalPipe() }
+                return pipe
+            }
+        }
+
+        private static let current = Mutex<SignalPipe?>(nil)
 
         /// One stream's signals and where they go.
         private struct Route {
@@ -99,7 +108,7 @@
         }
 
         /// Reads every pending signal byte and yields it to each stream that
-        /// holds the signal.
+        /// is subscribed to the signal.
         private func drain(_ readEnd: Int32) {
             var buffer = [UInt8](repeating: 0, count: 64)
             while true {
@@ -150,23 +159,19 @@
         return (ends[0], ends[1])
     }
 
-    /// A signal's disposition from before the stream took it over.
+    /// A signal's disposition from before its first subscriber.
     struct Disposition: @unchecked Sendable {  // `sigaction` holds a C function pointer
         let signal: Int32
         let action: sigaction
 
         /// Installs ``handleSignal(_:)``, returning the previous disposition.
-        static func takeOver(_ signal: Int32) -> Disposition {
-            var handler = sigaction()
-            #if canImport(Musl)
-                handler.__sa_handler.sa_handler = handleSignal
-            #else
-                handler.__sigaction_handler.sa_handler = handleSignal
-            #endif
-            handler.sa_flags = SA_RESTART
-            sigemptyset(&handler.sa_mask)
+        static func create(_ signal: Int32) -> Disposition {
+            var action = sigaction()
+            action.handler = handleSignal
+            action.sa_flags = SA_RESTART
+            sigemptyset(&action.sa_mask)
             var previous = sigaction()
-            sigaction(signal, &handler, &previous)
+            sigaction(signal, &action, &previous)
             return Disposition(signal: signal, action: previous)
         }
 

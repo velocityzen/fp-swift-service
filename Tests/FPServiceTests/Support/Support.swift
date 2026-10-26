@@ -1,25 +1,10 @@
 import Dispatch
-import FP
 import FPBracket
 @testable import FPService
 import Synchronization
 
 enum TestError: Error, Equatable {
     case boom(String)
-}
-
-struct DeadlineExceeded: Error {}
-
-/// Runs `operation` under a wall-clock deadline, so a lifecycle bug fails the
-/// test instead of hanging the suite. Nothing sleeps unless the test hangs.
-func withDeadline<T: Sendable>(
-    _ limit: Duration = .seconds(5),
-    _ operation: @escaping @Sendable () async -> T
-) async throws -> T {
-    try await withTimeout(limit, failingWith: DeadlineExceeded()) {
-        Result<T, DeadlineExceeded>.success(await operation())
-    }
-    .get()
 }
 
 /// An ordered record of what happened, shared by a test, its brackets, its
@@ -59,7 +44,7 @@ final class Recorder: Sendable {
             state.awaited[entry] = gate
             return gate
         }
-        await gate.opened
+        await gate.openedOrCancelled
     }
 }
 

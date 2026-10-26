@@ -7,6 +7,7 @@
 #endif
 import FPBracket
 @testable import FPService
+import ServiceTestSupport
 
 /// Fake signals for one run: the test sends them as values, and stage 3 is
 /// recorded instead of ending the process.
@@ -29,10 +30,11 @@ final class Harness: Sendable {
 /// recorded, runs `act` next to it (typically sending a signal).
 ///
 /// The service is built inside the run: it is `~Copyable`, so the action runs
-/// in a sibling task instead.
+/// in a sibling task instead. Signals in `unavailable` are not subscribed to.
 func run<Resource>(
     _ harness: Harness,
     shutdownSignals: [Int32] = [SIGTERM],
+    unavailable: [Int32] = [],
     shutdownTimeout: Duration? = nil,
     clock: ServiceClock = .continuous,
     observe: Bool = true,
@@ -63,9 +65,10 @@ func run<Resource>(
                 shutdownSignals: shutdownSignals,
                 shutdownTimeout: shutdownTimeout,
                 clock: clock,
-                signalStream: { taken in
-                    log.append("signals taken: \(taken)")
-                    return signals
+                signalStream: { requested in
+                    let subscribed = requested.filter { !unavailable.contains($0) }
+                    log.append("signals subscribed: \(subscribed)")
+                    return (signals, subscribed, requested.filter(unavailable.contains))
                 },
                 terminate: { log.append("terminate: \($0)") },
                 observe: observer
@@ -108,6 +111,7 @@ private func describe(_ event: ServiceEvent) -> String {
 
 private func describe(_ error: ServiceError<TestError>) -> String {
     switch error {
+        case .signalsUnavailable(let signals): "failed: signals unavailable \(signals)"
         case .startFailed: "failed: start"
         case .serveFailed: "failed: serve"
         case .stopFailed: "failed: stop"

@@ -7,6 +7,7 @@
 #endif
 import FPBracket
 @testable import FPService
+import ServiceTestSupport
 import Testing
 
 /// R2. Events.

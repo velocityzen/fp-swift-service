@@ -2,42 +2,13 @@ import Synchronization
 
 /// The state of one ``Service`` run, shared by its child tasks.
 ///
-/// Every stage change and every event happens under one lock, so events come
-/// out in the order the stages changed. Side effects that run user code
-/// (shutdown handlers) or end the process run after the lock is released.
+/// Every stage change is a step of the pure `State.step(_:)` (see
+/// ServiceRun+Step.swift), taken under one lock with its events emitted
+/// there too, so events come out in the order the stages changed. Side
+/// effects that run user code (shutdown handlers) or end the process run
+/// after the lock is released.
 final class ServiceRun<Failure: Error>: Sendable {
     typealias Event = Result<ServiceEvent, ServiceError<Failure>>
-
-    enum Stage: Sendable {
-        case running
-        /// Stage 1.
-        case graceful
-        /// Stage 2.
-        case cancelling
-    }
-
-    struct State {
-        var stage = Stage.running
-        var shutdownReason: ShutdownReason?
-        var cancellationReason: CancellationReason?
-        var ready = false
-        /// The bracket call has returned: nothing is left to stop.
-        var finished = false
-        var startFailure: Failure?
-        var serveFailure: Failure?
-        var stopFailure: Failure?
-        var timedOut: Duration?
-        var stopBegan: Duration?
-        var stopEnded: Duration?
-    }
-
-    /// What a signal does, decided under the lock and carried out after it.
-    private enum Effect {
-        case none
-        case graceful
-        case cancel
-        case kill(Int32)
-    }
 
     /// Handed to `serve`; requested when stage 1 begins.
     let shutdown = Shutdown()
@@ -67,78 +38,43 @@ final class ServiceRun<Failure: Error>: Sendable {
 
     // MARK: Lifecycle
 
+    /// The shutdown signals could not all be subscribed to: the run fails
+    /// before anything starts.
+    func signalsUnavailable(_ signals: [Int32]) {
+        apply(step(.signalsUnavailable(signals)))
+    }
+
     func started() {
-        state.withLock { _ in emit(.success(.started)) }
+        apply(step(.started))
     }
 
     func ready() {
-        state.withLock { state in
-            state.ready = true
-            emit(.success(.ready))
-        }
+        apply(step(.ready))
     }
 
     /// `serve` returned. Starts the graceful stage — unless the task was
     /// cancelled: cancellation never turns into a graceful request.
     func served(_ served: Result<Void, Failure>) {
-        let cancelled = Task.isCancelled
-        let now = clock.now()
-        let effect = state.withLock { state -> Effect in
-            state.stopBegan = now
-            if case .failure(let error) = served {
-                state.serveFailure = error
-                emit(.failure(.serveFailed(error)))
-            }
-            guard !cancelled else { return .none }
-            return beginGraceful(&state, .serveReturned) ? .graceful : .none
-        }
-        apply(effect)
+        apply(step(.served(served, cancelled: Task.isCancelled, at: clock.now())))
     }
 
-    /// The bracket call returned: acquire's failure before `ready`,
-    /// dispose's after. Each failure is one event, as it happens; only the
-    /// result combines them.
+    /// The bracket call returned.
     func finished(_ result: Result<Void, Failure>) {
-        let now = clock.now()
-        state.withLock { state in
-            state.stopEnded = now
-            state.finished = true
-            guard case .failure(let error) = result else { return }
-            if !state.ready {
-                state.startFailure = error
-                emit(.failure(.startFailed(error)))
-            } else {
-                state.stopFailure = error
-                emit(.failure(.stopFailed(error)))
-            }
-        }
+        apply(step(.finished(result, at: clock.now())))
         done.open()
     }
 
     // MARK: Stages
 
-    /// A signal arrived: move one stage forward from where the run is. Once
-    /// the bracket has returned there is nothing left to stop, so it only
-    /// shows up as an event.
+    /// A signal arrived: move one stage forward from where the run is.
     ///
     /// Returns whether it began the graceful stage. The caller then requests
     /// `shutdown` in a task of its own: the request runs the shutdown
     /// handlers, and one that blocks must not keep the next signal from
     /// being read.
     func receive(_ signal: Int32) -> Bool {
-        let effect = state.withLock { state -> Effect in
-            emit(.success(.signal(signal)))
-            guard !state.finished else { return .none }
-            switch state.stage {
-                case .running:
-                    return beginGraceful(&state, .signal(signal)) ? .graceful : .none
-                case .graceful:
-                    return beginCancel(&state, .signal(signal)) ? .cancel : .none
-                case .cancelling:
-                    return .kill(signal)
-            }
-        }
-        guard case .graceful = effect else {
+        let effect = step(.signal(signal))
+        guard effect == .graceful else {
             apply(effect)
             return false
         }
@@ -148,28 +84,16 @@ final class ServiceRun<Failure: Error>: Sendable {
 
     /// Stage 2 for a reason other than a signal (deadline, caller).
     func cancel(_ reason: CancellationReason) {
-        let began = state.withLock { beginCancel(&$0, reason) }
-        if began { apply(.cancel) }
+        apply(step(.cancel(reason)))
     }
 
-    private func beginGraceful(_ state: inout State, _ reason: ShutdownReason) -> Bool {
-        guard state.stage == .running else { return false }
-        state.stage = .graceful
-        state.shutdownReason = reason
-        emit(.success(.shuttingDown(reason)))
-        return true
-    }
-
-    private func beginCancel(_ state: inout State, _ reason: CancellationReason) -> Bool {
-        guard !state.finished, state.stage != .cancelling else { return false }
-        state.stage = .cancelling
-        state.cancellationReason = reason
-        emit(.success(.cancelling(reason)))
-        if case .shutdownTimeout(let after) = reason {
-            state.timedOut = after
-            emit(.failure(.shutdownTimeout(after: after)))
+    /// Takes one step under the lock, emitting its events there.
+    private func step(_ input: Input) -> Effect {
+        state.withLock { state in
+            let step = state.step(input)
+            step.events.forEach { continuation?.yield($0) }
+            return step.effect
         }
-        return true
     }
 
     private func apply(_ effect: Effect) {
@@ -185,47 +109,16 @@ final class ServiceRun<Failure: Error>: Sendable {
 
     // MARK: Result
 
-    /// The run's result, read once every child has finished. A timeout comes
-    /// first — it is why the service was cancelled — and carries any serve or
-    /// dispose failure with it.
+    /// The run's result, read once every child has finished.
     func result() -> Result<ServiceOutcome, ServiceError<Failure>> {
-        let state = state.withLock { $0 }
-        if let error = state.startFailure { return .failure(.startFailed(error)) }
-        if let after = state.timedOut {
-            return .failure(
-                .shutdownTimeout(after: after, serve: state.serveFailure, stop: state.stopFailure)
-            )
-        }
-        switch (state.serveFailure, state.stopFailure) {
-            case (let serve?, let stop?):
-                return .failure(.serveAndStopFailed(serve: serve, stop: stop))
-            case (let serve?, nil): return .failure(.serveFailed(serve))
-            case (nil, let stop?): return .failure(.stopFailed(stop))
-            case (nil, nil): return .success(outcome(state))
-        }
+        state.withLock { $0.result }
     }
 
     /// Ends the event stream: `.stopped` for a service that started, then finish.
     func finishEvents() {
         state.withLock { state in
-            if state.startFailure == nil { emit(.success(.stopped(outcome(state)))) }
+            if let event = state.lastEvent { continuation?.yield(event) }
         }
         continuation?.finish()
-    }
-
-    private func outcome(_ state: State) -> ServiceOutcome {
-        var stopDuration: Duration?
-        if let began = state.stopBegan, let ended = state.stopEnded {
-            stopDuration = ended - began
-        }
-        return ServiceOutcome(
-            shutdownReason: state.shutdownReason,
-            cancellationReason: state.cancellationReason,
-            stopDuration: stopDuration
-        )
-    }
-
-    private func emit(_ event: Event) {
-        continuation?.yield(event)
     }
 }

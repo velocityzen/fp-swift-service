@@ -59,7 +59,7 @@ final class Gate: Sendable {
 
     /// Suspends until the gate opens. Also returns when the waiting task is
     /// cancelled — check `Task.isCancelled` if the difference matters.
-    var opened: Void {
+    var openedOrCancelled: Void {
         get async {
             let registered = Mutex<UInt64?>(nil)
             await withTaskCancellationHandler {

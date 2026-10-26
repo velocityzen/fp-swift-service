@@ -1,16 +1,22 @@
+import ProcessSignals
+
 /// Why a service run failed, by phase.
 ///
 /// `Failure` is the service bracket's own error type, passed through
 /// untouched so a host can switch on it:
 ///
 /// ```swift
-/// if case .startFailed(.portInUse(let port)) = error { … }
+/// if case .startFailed(.unavailable) = error { … }
 /// ```
 ///
 /// The core does not import Foundation, so this is not a `LocalizedError`;
 /// `errorDescription` has the same meaning, and a host that uses Foundation
 /// can add the conformance in one line.
 public enum ServiceError<Failure: Error>: Error, CustomStringConvertible {
+    /// These shutdown signals could not be subscribed to, so nothing ran:
+    /// without them, the signal would end the process mid-run, skipping
+    /// dispose.
+    case signalsUnavailable([Int32])
     /// Acquire failed; `serve` and dispose were skipped.
     case startFailed(Failure)
     /// `serve` failed; dispose then ran cleanly.
@@ -27,7 +33,7 @@ public enum ServiceError<Failure: Error>: Error, CustomStringConvertible {
     /// The phase the failure happened in.
     public var phase: ServicePhase {
         switch self {
-            case .startFailed: .start
+            case .signalsUnavailable, .startFailed: .start
             case .serveFailed, .serveAndStopFailed: .serve
             case .stopFailed, .shutdownTimeout: .stop
         }
@@ -38,6 +44,8 @@ public enum ServiceError<Failure: Error>: Error, CustomStringConvertible {
     /// ``shutdownTimeout(after:serve:stop:)``).
     public var failure: Failure? {
         switch self {
+            case .signalsUnavailable:
+                nil
             case .startFailed(let error), .serveFailed(let error), .stopFailed(let error):
                 error
             case .serveAndStopFailed(let error, _):
@@ -51,6 +59,10 @@ public enum ServiceError<Failure: Error>: Error, CustomStringConvertible {
     /// Same meaning as `LocalizedError.errorDescription`.
     public var errorDescription: String? {
         switch self {
+            case .signalsUnavailable(let signals):
+                "Service could not subscribe to "
+                    + signals.map(signalName).joined(separator: ", ")
+                    + ", so it did not start."
             case .startFailed(let error): "Service failed to start: \(error)"
             case .serveFailed(let error): "Service failed while serving: \(error)"
             case .stopFailed(let error): "Service failed to stop: \(error)"

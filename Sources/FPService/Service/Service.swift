@@ -1,10 +1,3 @@
-#if canImport(Darwin)
-    import Darwin
-#elseif canImport(Glibc)
-    import Glibc
-#elseif canImport(Musl)
-    import Musl
-#endif
 import FPBracket
 import ProcessSignals
 
@@ -13,15 +6,17 @@ import ProcessSignals
 /// Configure it, then call it with its `serve` body, like a bracket:
 ///
 /// ```swift
-/// let withService = Service(services, shutdownSignals: [SIGTERM, SIGINT], shutdownTimeout: .seconds(10)) { events in
-///     for await event in events { log(event) }       // ends by itself after .stopped
-/// }
-///
-/// let result = await withService { resources, shutdown in
-///     await api.acceptLoop(until: shutdown)
-/// }
-/// // Result<ServiceOutcome, ServiceError<AppError>>, after dispose has finished
+/// let withService = Service(
+///     withDependencies(),
+///     shutdownSignals: [SIGINT, SIGTERM],
+///     shutdownTimeout: .seconds(10)
+/// )
+/// let result = await withService(handleRequests)
 /// ```
+///
+/// `result` is a `Result<ServiceOutcome, ServiceError<ExampleError>>`, once
+/// dispose has finished. (The code is the package's Example; see
+/// <doc:GettingStarted>.)
 ///
 /// Stopping has three stages. Each signal from `shutdownSignals` moves it one
 /// stage forward:
@@ -42,12 +37,17 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
     let shutdownSignals: [Int32]
     let shutdownTimeout: Duration?
     let clock: ServiceClock
-    let signalStream: @Sendable ([Int32]) async -> AsyncStream<Int32>
+    let signalStream: @Sendable ([Int32]) async -> Signals
     let terminate: @Sendable (Int32) -> Void
 
     /// - Parameters:
     ///   - service: the composed bracket; acquire starts it, dispose stops it.
-    ///   - shutdownSignals: signals taken over for the run; see the stages above.
+    ///   - shutdownSignals: signals subscribed to for the run; see the stages
+    ///     above. If one can't be subscribed to — SIGKILL, SIGSTOP, a number the
+    ///     platform doesn't have, or on Linux any, when the process is out of
+    ///     file descriptors — the run fails with
+    ///     ``ServiceError/signalsUnavailable(_:)`` before acquire: without
+    ///     it, the signal would end the process mid-run, skipping dispose.
     ///   - shutdownTimeout: how long the graceful stage may take before the
     ///     service is cancelled; `nil` waits indefinitely.
     ///   - clock: deadlines and stop durations; tests inject a manual clock.
@@ -64,20 +64,20 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
             shutdownSignals: shutdownSignals,
             shutdownTimeout: shutdownTimeout,
             clock: clock,
-            signalStream: { await processSignals($0) },
-            terminate: terminateProcess,
+            signalStream: { await registerSignals($0) },
+            terminate: { endProcess(as: $0) },
             observe: observe
         )
     }
 
-    /// The seams tests replace: where signals come from, and how stage 3
-    /// ends the process.
+    /// The seams tests replace: where signals come from (and which were
+    /// subscribed to), and how stage 3 ends the process.
     init(
         _ service: sending BracketAsync<Resource, Failure>,
         shutdownSignals: [Int32],
         shutdownTimeout: Duration?,
         clock: ServiceClock,
-        signalStream: @escaping @Sendable ([Int32]) async -> AsyncStream<Int32>,
+        signalStream: @escaping @Sendable ([Int32]) async -> Signals,
         terminate: @escaping @Sendable (Int32) -> Void,
         observe: sending ((ServiceEvents<Failure>) async -> Void)?
     ) {
@@ -125,10 +125,15 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
         let timeout = shutdownTimeout
 
         async let observed: Void = runObserver(observe, events)
-        let signals = await signalStream(shutdownSignals)
-        async let watched: Void = watchSignalsAndTimeout(signals, timeout: timeout, run)
-        await superviseBracket(bracket, serve, run)
-        await watched
+        let (signals, _, unavailable) = await signalStream(shutdownSignals)
+        if unavailable.isEmpty {
+            async let watched: Void = watchSignalsAndTimeout(signals, timeout: timeout, run)
+            await superviseBracket(bracket, serve, run)
+            await watched
+        } else {
+            run.signalsUnavailable(unavailable)
+            await release(signals)
+        }
 
         let result = run.result()
         run.finishEvents()
@@ -147,37 +152,3 @@ func waitForShutdown<Resource, Failure: Error>(
     await shutdown.requested
     return .success(())
 }
-
-/// Stage 3: restore the signal's default action and re-send it, so the
-/// process ends the way that signal ends it. A signal whose default action
-/// does not end the process (it ignores, stops or continues it) ends it with
-/// exit status 128 + the signal instead, the shell's convention.
-///
-/// Sent with `kill`, to the whole process: `raise` targets only the calling
-/// thread, and the Dispatch worker threads this runs on block asynchronous
-/// signals.
-@Sendable
-private func terminateProcess(_ signal: Int32) {
-    guard !survivableSignals.contains(signal) else { _exit(128 + signal) }
-    var action = sigaction()
-    #if canImport(Darwin)
-        action.__sigaction_u.__sa_handler = SIG_DFL
-    #elseif canImport(Musl)
-        action.__sa_handler.sa_handler = SIG_DFL
-    #else
-        action.__sigaction_handler.sa_handler = SIG_DFL
-    #endif
-    sigaction(signal, &action, nil)
-    kill(getpid(), signal)
-}
-
-/// Signals whose default action leaves the process running: ignore, stop or
-/// continue (see ProcessSignals' signal reference).
-private let survivableSignals: [Int32] =
-    [SIGCHLD, SIGCONT, SIGURG, SIGWINCH, SIGTSTP, SIGTTIN, SIGTTOU] + platformSurvivableSignals
-
-#if canImport(Darwin)
-    private let platformSurvivableSignals: [Int32] = [SIGINFO, SIGIO]
-#else
-    private let platformSurvivableSignals: [Int32] = []
-#endif

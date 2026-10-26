@@ -92,6 +92,6 @@ final class ManualClock: Clock, Sendable {
             }
             return gate
         }
-        await gate.opened
+        await gate.openedOrCancelled
     }
 }

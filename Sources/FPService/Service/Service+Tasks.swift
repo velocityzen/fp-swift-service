@@ -21,7 +21,6 @@ func runBracket<Resource, Failure: Error>(
     _ serve: sending @escaping (Resource, Shutdown) async -> Result<Void, Failure>,
     _ run: ServiceRun<Failure>
 ) async {
-    run.started()
     let result = await bracket { resource in
         run.ready()
         run.served(await serve(resource, run.shutdown))
@@ -36,11 +35,14 @@ func runBracket<Resource, Failure: Error>(
 ///
 /// Cancelling the caller begins stage 2 at once, not when the bracket
 /// returns, so a signal during the cancelled dispose ends the process.
+/// `started` comes first even so: it is emitted before the bracket's task
+/// starts, and the cancellation handler installed.
 func superviseBracket<Resource, Failure: Error>(
     _ bracket: sending BracketAsync<Resource, Failure>,
     _ serve: sending @escaping (Resource, Shutdown) async -> Result<Void, Failure>,
     _ run: ServiceRun<Failure>
 ) async {
+    run.started()
     async let bracketTask: Void = runBracket(bracket, serve, run)
     await withTaskCancellationHandler {
         await firstOpened(run.done, run.cancelling)
@@ -81,7 +83,7 @@ func watchSignalsAndTimeout<Failure: Error>(
     await withTaskGroup(of: Void.self) { group in
         if let timeout {
             group.addTask {
-                await run.graceful.opened
+                await run.graceful.openedOrCancelled
                 guard !Task.isCancelled else { return }
                 await run.clock.sleep(timeout)
                 guard !Task.isCancelled else { return }
@@ -95,20 +97,33 @@ func watchSignalsAndTimeout<Failure: Error>(
     await reader.value
 }
 
+/// Ends a signal stream that is never read, which releases its signals: a
+/// stream iterated in a cancelled task ends.
+func release(_ signals: AsyncStream<Int32>) async {
+    let reader = Task {
+        for await _ in signals {}
+    }
+    reader.cancel()
+    await reader.value
+}
+
 /// Runs the observer, if there is one.
 func runObserver<Failure: Error>(
     _ observe: sending ((ServiceEvents<Failure>) async -> Void)?,
     _ events: ServiceEvents<Failure>?
 ) async {
-    guard let observe, let events else { return }
+    guard let observe, let events else {
+        return
+    }
+
     await observe(events)
 }
 
 /// Suspends until either gate opens, or the task is cancelled.
 private func firstOpened(_ a: Gate, _ b: Gate) async {
     await withTaskGroup(of: Void.self) { group in
-        group.addTask { await a.opened }
-        group.addTask { await b.opened }
+        group.addTask { await a.openedOrCancelled }
+        group.addTask { await b.openedOrCancelled }
         await group.next()
         group.cancelAll()
     }

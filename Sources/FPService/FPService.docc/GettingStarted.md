@@ -54,7 +54,7 @@ func withDependencies() -> BracketAsync<(Database, Server), ExampleError> {
 
 ### Run them
 
-``Service`` takes over the listed signals. Calling it starts the services and waits for a signal, then stops them in reverse order (`swift run Example`, then Ctrl-C).
+``Service`` subscribes to the listed signals. Calling it starts the services and waits for a signal, then stops them in reverse order (`swift run Example`, then Ctrl-C).
 
 <!-- example: quickstart -->
 ```swift

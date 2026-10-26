@@ -69,7 +69,7 @@ func withDependencies() -> BracketAsync<(Database, Server), ExampleError> {
 }
 ```
 
-**Run it.** `Service` takes over the listed signals. Calling it starts the services and waits for a signal, then stops them: the server closes first, the database last.
+**Run it.** `Service` subscribes to the listed signals. Calling it starts the services and waits for a signal, then stops them: the server closes first, the database last.
 
 <!-- example: quickstart -->
 ```swift
@@ -248,9 +248,9 @@ Dispose runs after the body returns, so a resource drains and closes in its own 
 | 2. cancel | a signal during stage 1, the timeout passing, or cancelling the calling task | the service is cancelled; dispose still runs |
 | 3. kill | a signal during stage 2 | the signal's default action is restored and the signal re-sent; the process ends (with exit status 128 + the signal, if that action would leave it running) |
 
-Each signal from `shutdownSignals` moves the stop one stage forward. The signals are taken over before acquire and released after dispose, so they can never kill the process mid-cleanup by accident.
+Each signal from `shutdownSignals` moves the stop one stage forward. The signals are subscribed to before acquire and unsubscribed from after dispose, so they can never kill the process mid-cleanup by accident.
 
-In stage 2, dispose runs in a cancelled task. Cleanup that must finish anyway uses fp-swift-bracket's `BracketAsync(acquire:uncancellableDispose:)`.
+In stage 2, dispose runs in a cancelled task. Cleanup that must finish anyway uses fp-swift-bracket's `BracketAsync(acquire:uncancellableDispose:)`. There is no hard deadline after that: a dispose that ignores cancellation is waited for until it returns, or until one more signal ends the process. Service managers bound it from outside, sending `SIGKILL` after their own grace period.
 
 ## Reference
 
@@ -259,7 +259,7 @@ In stage 2, dispose runs in a cancelled task. Cleanup that must finish anyway us
 ```swift
 Service(
     _ service: BracketAsync<Resource, Failure>,      // the composed services
-    shutdownSignals: [Int32] = [],                   // signals taken over for the run
+    shutdownSignals: [Int32] = [],                   // signals subscribed to for the run
     shutdownTimeout: Duration? = nil,                // how long stage 1 may take
     clock: ServiceClock = .continuous,               // tests inject a manual clock
     observe: ((ServiceEvents<Failure>) async -> Void)? = nil
@@ -275,6 +275,7 @@ A `Service` value runs once; calling it twice doesn't compile. Brackets stay reu
 
 | What happened | Result |
 |---|---|
+| a shutdown signal can't be subscribed to | `.failure(.signalsUnavailable(signals))` — nothing runs |
 | acquire failed | `.failure(.startFailed(e))` — body and dispose skipped |
 | the body failed | `.failure(.serveFailed(e))` |
 | dispose failed | `.failure(.stopFailed(e))` |
@@ -304,7 +305,7 @@ A `Service` value runs once; calling it twice doesn't compile. Brackets stay reu
 .success(.stopped(ServiceOutcome(shutdownReason: .signal(SIGTERM), cancellationReason: .signal(SIGTERM), stopDuration: …)))
 ```
 
-Failures arrive as `.failure`, each once, where it happens: `.startFailed`, `.serveFailed`, `.shutdownTimeout(after:)` and `.stopFailed`; the result combines them (for example into `.serveAndStopFailed`). A run whose acquire failed ends with `.failure(.startFailed)` instead of `.stopped`. If the calling task is cancelled, the observer is cancelled too and may miss the last events; the result still reports the cancellation.
+Failures arrive as `.failure`, each once, where it happens: `.signalsUnavailable`, `.startFailed`, `.serveFailed`, `.shutdownTimeout(after:)` and `.stopFailed`; the result combines them (for example into `.serveAndStopFailed`). A run that never started ends with its failure instead of `.stopped`. If the calling task is cancelled, the observer is cancelled too and may miss the last events; the result still reports the cancellation.
 
 ### Notes
 
@@ -323,11 +324,13 @@ for await signal in await processSignals([SIGTERM, SIGINT]) {
 }
 ```
 
-- **Startup:** `processSignals` returns once every source is registered, so a signal sent right after the call is not missed.
-- **Left out:** a signal that can't be taken over is skipped: a number the platform doesn't have, or `SIGKILL` and `SIGSTOP`, which can't be caught. If none is left, the stream is already finished.
+- **Startup:** `processSignals(_:)` returns once every signal is subscribed to, so a signal sent right after the call is not missed. One sent during the call has its previous effect or is delivered; it is never lost.
+- **Left out:** a signal that can't be subscribed to is skipped: a number the platform doesn't have (on Linux, also one the C library keeps for itself), or `SIGKILL` and `SIGSTOP`, which can't be caught. If none is left, the stream is already finished.
 - **Deliveries:** each delivery is one element. Signals sent in the same instant can merge: the kernel keeps only one pending instance of a standard signal (Darwin's kqueue still counts every send).
-- **While the stream lives:** the signals' default actions are off.
-- **Ending the stream:** cancelling the task that iterates it ends it. That releases the signals and restores their previous dispositions. Breaking out of the loop does not end the stream while it is still referenced.
-- **No extra thread:** Dispatch delivers signals without a thread of our own.
-- **Reference:** the [Signal Reference](https://swiftpackageindex.com/velocityzen/fp-swift-service/documentation/processsignals/signalreference) explains what each signal means, its default action, and which ones to take over.
-- **Names:** `signalName(_:)` gives a signal's conventional name, such as `"SIGTERM"`, or `"signal N"` for an unknown number. It matches against the platform's own constants, because the numbers differ between platforms.
+- **While the stream lives:** the signals' default actions are off, so they can't end the process.
+- **Child processes:** on Darwin a subscribed signal is set to `SIG_IGN`, and ignored signals survive `exec`: a child started with `posix_spawn`, `fork` and `exec`, or `system()` can't be stopped with that signal. Reset the child's signals as it starts (`POSIX_SPAWN_SETSIGDEF`), as Foundation's `Process` does. On Linux the signal gets a handler, which `exec` resets.
+- **Ending the stream:** cancelling the task that iterates it ends it. That unsubscribes it from the signals; the last subscriber to a signal restores its previous disposition. Breaking out of the loop does not end the stream while it is still referenced.
+- **Sharing:** several streams can subscribe to the same signal at once, and each gets every delivery.
+- **No extra thread:** Dispatch delivers signals without a thread of its own.
+- **Names:** `signalName(_:)` gives a signal's conventional name, such as `"SIGTERM"`, or `"signal N"` for an unknown number, matched against the platform's own constants.
+- **Reference:** the [Signal Reference](https://swiftpackageindex.com/velocityzen/fp-swift-service/documentation/processsignals/signalreference) explains what each signal means, its default action, and which ones to subscribe to.

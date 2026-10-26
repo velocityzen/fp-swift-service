@@ -38,10 +38,6 @@ opt_in_rules:
   - unneeded_parentheses_in_closure_argument
   - yoda_condition
 
-# Analyzer rules need full type information — they run under `swiftlint analyze`, not plain `swiftlint`.
-analyzer_rules:
-  - explicit_self # Encourages `self.` only where actually needed.
-
 # Tunings for kept rules.
 type_name:
   min_length:

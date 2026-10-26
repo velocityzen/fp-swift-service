@@ -1,6 +1,6 @@
 /// A step in a service's life, delivered to the observer as
 /// `.success(event)` in ``ServiceEvents``. Failures arrive as `.failure`, each
-/// once, where it happens: `startFailed`, `serveFailed`,
+/// once, where it happens: `signalsUnavailable`, `startFailed`, `serveFailed`,
 /// `shutdownTimeout(after:)` and `stopFailed`. The run's result combines them.
 ///
 /// In order: `started`, `ready`, then — as they happen — `signal`,

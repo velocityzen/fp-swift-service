@@ -6,8 +6,23 @@
 /// that happens before shutdown comes back at once.
 ///
 /// ```swift
-/// func handleRequests(_ resources: Resources, _ shutdown: Shutdown) async -> Result<Void, AppError> {
-///     await withCancellation(on: shutdown, acceptConnections)
+/// /// Handles requests until shutdown is requested, then stops and returns.
+/// func handleRequests(_ resources: (Database, Server), _ shutdown: Shutdown) async -> Result<
+///     Void, ExampleError
+/// > {
+///     await withCancellation(on: shutdown, work)
+/// }
+///
+/// /// Handles a request once a second until cancelled.
+/// func work() async -> Result<Void, ExampleError> {
+///     var request = 0
+///     while !Task.isCancelled {
+///         try? await Task.sleep(for: .seconds(1))
+///         guard !Task.isCancelled else { break }
+///         request += 1
+///         print("handled request \(request)")
+///     }
+///     return .success(())
 /// }
 /// ```
 ///

@@ -7,6 +7,7 @@
 #endif
 import FPBracket
 @testable import FPService
+import ServiceTestSupport
 import Testing
 
 /// R1. Lifecycle — and R6. Result.
@@ -56,6 +57,26 @@ struct LifecycleTests {
         // a was acquired, so the bracket released it
         #expect(log.with(prefix: "stop:") == ["stop:a"])
         #expect(harness.log.events == ["started", "failed: start"])
+    }
+
+    @Test("shutdown signals that can't be subscribed to fail the run before acquire")
+    func signalsUnavailable() async throws {
+        let harness = Harness()
+        let log = harness.log
+        let result = try await run(
+            harness,
+            shutdownSignals: [SIGTERM, SIGINT],
+            unavailable: [SIGINT]
+        ) {
+            probe("a", log)
+        }
+
+        #expect(result.failure == .signalsUnavailable([SIGINT]))
+        #expect(log.with(prefix: "start:").isEmpty)
+        #expect(log.events == ["failed: signals unavailable [2]"])
+        // SIGTERM was subscribed to, and is unsubscribed from before the call returns.
+        let all = log.all
+        #expect(all.firstIndex(of: "signals ended")! < all.firstIndex(of: "returned")!)
     }
 
     @Test("the default serve stays up until shutdown")

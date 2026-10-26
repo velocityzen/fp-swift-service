@@ -1,4 +1,5 @@
 @testable import FPService
+import ServiceTestSupport
 import Testing
 
 /// Waits until cancelled, then reports it as its own result.

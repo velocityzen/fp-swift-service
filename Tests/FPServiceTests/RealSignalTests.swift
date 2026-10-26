@@ -7,6 +7,7 @@
 #endif
 import FPBracket
 import FPService
+import ServiceTestSupport
 import Testing
 
 /// End to end through the public API with real signals (`processSignals`).
@@ -32,25 +33,19 @@ struct RealSignalTests {
         #expect(disposition(SIGCONT) == before)
     }
 
-    @Test("shutdown signals that can't be taken over are left out")
-    func cannotTakeOver() async throws {
+    @Test("shutdown signals that can't be subscribed to fail the run; the rest are unsubscribed")
+    func cannotSubscribe() async throws {
+        let before = disposition(SIGCONT)
         let log = Recorder()
         let result = try await withDeadline {
-            let withService = Service(probe("a", log), shutdownSignals: [0, 1234, SIGKILL])
+            let withService = Service(
+                probe("a", log),
+                shutdownSignals: [SIGCONT, 1234, SIGKILL, 1234]
+            )
             return await withService { _, _ in .success(()) }
         }
-        #expect(try result.get().shutdownReason == .serveReturned)
+        #expect(result.failure == .signalsUnavailable([1234, SIGKILL]))
+        #expect(log.all.isEmpty)  // nothing ran
+        #expect(disposition(SIGCONT) == before)
     }
-}
-
-private func disposition(_ signal: Int32) -> UInt {
-    var current = sigaction()
-    sigaction(signal, nil, &current)
-    #if canImport(Darwin)
-        return unsafeBitCast(current.__sigaction_u.__sa_handler, to: UInt.self)
-    #elseif canImport(Musl)
-        return unsafeBitCast(current.__sa_handler.sa_handler, to: UInt.self)
-    #else
-        return unsafeBitCast(current.__sigaction_handler.sa_handler, to: UInt.self)
-    #endif
 }
