@@ -324,7 +324,7 @@ for await signal in await processSignals([SIGTERM, SIGINT]) {
 ```
 
 - **Startup:** `processSignals` returns once every source is registered, so a signal sent right after the call is not missed.
-- **Deliveries:** each delivery is one element, even when several arrive together.
+- **Deliveries:** each delivery is one element, even when several arrive together. On Linux the kernel itself merges a signal sent again while the first is still pending, as POSIX allows.
 - **While the stream lives:** the signals' default actions are off.
 - **Ending the stream:** cancelling the task that iterates it ends it. That cancels the sources and restores the previous dispositions. Breaking out of the loop does not end the stream while it is still referenced.
 - **No extra thread:** Dispatch delivers signals without a thread of our own.

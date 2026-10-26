@@ -17,7 +17,9 @@ import Dispatch
 /// }
 /// ```
 ///
-/// - Each delivery is one element, even when several arrive at once.
+/// - Each delivery is one element, even when several arrive at once. (On
+///   Linux the kernel itself merges a signal sent again while the first is
+///   still pending, as POSIX allows.)
 /// - An empty `signals` list gives a stream that is already finished.
 /// - Returns once every signal source is registered, so a signal sent right
 ///   after this call is not missed.
@@ -56,11 +58,21 @@ public func processSignals(_ signals: [Int32]) async -> AsyncStream<Int32> {
     // Nothing to wait for: end at once instead of never.
     if sources.isEmpty { continuation.finish() }
 
-    continuation.onTermination = { [sources, previous] _ in
-        sources.forEach { $0.cancel() }
+    let installed = Sources(all: sources)
+    continuation.onTermination = { [installed, previous] _ in
+        installed.all.forEach { $0.cancel() }
         previous.forEach { $0.restore() }
     }
     return stream
+}
+
+/// The stream's signal sources, cancelled when it ends.
+///
+/// `@unchecked Sendable` because a Dispatch source may be cancelled from any
+/// thread, but Linux's Dispatch module does not mark the source types
+/// `Sendable` the way Darwin's does.
+private struct Sources: @unchecked Sendable {
+    let all: [any DispatchSourceSignal]
 }
 
 /// One serial queue for every signal handler; handlers only yield.

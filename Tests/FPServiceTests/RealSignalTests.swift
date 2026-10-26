@@ -21,7 +21,7 @@ struct RealSignalTests {
         let result = try await withDeadline {
             let withService = Service(probe("a", log), shutdownSignals: [SIGCONT])
             return await withService { _, shutdown in
-                raise(SIGCONT)
+                kill(getpid(), SIGCONT)  // to the whole process, like a real `kill`
                 await shutdown.requested
                 return .success(())
             }

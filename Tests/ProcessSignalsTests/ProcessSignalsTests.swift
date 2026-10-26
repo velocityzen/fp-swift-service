@@ -4,37 +4,49 @@
     import Glibc
 #endif
 import ProcessSignals
+import Synchronization
 import Testing
 
-/// These raise real signals in the test process. They use SIGWINCH and
+/// These send real signals to the test process. They use SIGWINCH and
 /// SIGURG, whose default action is to ignore, so a failure can never kill the
 /// test run. They change process-wide dispositions, so they run one at a time.
+///
+/// Signals are sent with `kill(getpid(), …)`, to the whole process, like a
+/// real `kill` or Ctrl-C. (`raise` targets only the calling thread, and on
+/// Linux libdispatch receives signals on a thread of its own.)
 @Suite("processSignals", .serialized, .timeLimit(.minutes(1)))
 struct ProcessSignalsTests {
-    @Test("delivers each raised signal")
+    @Test("delivers each signal")
     func delivers() async throws {
         let stream = await processSignals([SIGWINCH, SIGURG])
-        raise(SIGWINCH)
-        raise(SIGURG)
+        send(SIGWINCH)
+        send(SIGURG)
         #expect(try await collect(2, from: stream).sorted() == [SIGWINCH, SIGURG].sorted())
     }
 
-    @Test("signals raised back to back stay separate elements")
-    func coalesced() async throws {
-        let stream = await processSignals([SIGWINCH])
-        raise(SIGWINCH)
-        raise(SIGWINCH)
-        raise(SIGWINCH)
-        #expect(try await collect(3, from: stream) == [SIGWINCH, SIGWINCH, SIGWINCH])
-    }
+    #if canImport(Darwin)
+        // Darwin's kqueue counts every delivery. Linux merges a standard
+        // signal sent while the same one is still pending (POSIX), so this
+        // only holds on Darwin.
+        @Test("signals sent back to back stay separate elements")
+        func coalesced() async throws {
+            let stream = await processSignals([SIGWINCH])
+            send(SIGWINCH)
+            send(SIGWINCH)
+            send(SIGWINCH)
+            #expect(try await collect(3, from: stream) == [SIGWINCH, SIGWINCH, SIGWINCH])
+        }
+    #endif
 
-    @Test("a signal listed twice is delivered once per raise")
+    @Test("a signal listed twice is delivered once per send")
     func duplicates() async throws {
         let stream = await processSignals([SIGURG, SIGURG])
-        raise(SIGURG)
-        raise(SIGWINCH)  // not taken over: default action (ignore), not delivered
-        raise(SIGURG)
-        #expect(try await collect(2, from: stream) == [SIGURG, SIGURG])
+        var signals = stream.makeAsyncIterator()
+        send(SIGURG)
+        #expect(await signals.next() == SIGURG)
+        send(SIGWINCH)  // not taken over: default action (ignore), not delivered
+        send(SIGURG)
+        #expect(await signals.next() == SIGURG)
     }
 
     @Test("an empty list gives a finished stream")
@@ -43,27 +55,39 @@ struct ProcessSignalsTests {
         #expect(try await collect(1, from: stream) == [])
     }
 
-    @Test("the stream takes over the disposition; cancelling its consumer restores it")
-    func takesOverAndRestores() async throws {
+    @Test("ending the stream restores the disposition")
+    func restores() async throws {
         let original = disposition(SIGURG)
+        let installed = Mutex(false)
         let during = try await deadline {
             await withTaskGroup(of: UInt?.self) { group in
                 group.addTask {
                     let stream = await processSignals([SIGURG])
                     let during = disposition(SIGURG)
+                    installed.withLock { $0 = true }
                     for await _ in stream {}  // ends only when cancelled
                     return during
                 }
-                // Give the consumer time to install and start waiting; the
-                // stream does not end on its own, so cancelling is the test.
-                while disposition(SIGURG) == original { await Task.yield() }
+                // The stream does not end on its own, so cancelling is the test.
+                while !installed.withLock({ $0 }) { await Task.yield() }
                 group.cancelAll()
                 return await group.next().flatMap { $0 }
             }
         }
-        #expect(during == handlerBits(SIG_IGN))
+        #if canImport(Darwin)
+            // Darwin ignores the signal while kqueue receives it; on Linux,
+            // libdispatch manages the disposition itself.
+            #expect(during == handlerBits(SIG_IGN))
+        #else
+            _ = during
+        #endif
         #expect(disposition(SIGURG) == original)
     }
+}
+
+/// Sends `signal` to this process.
+func send(_ signal: Int32) {
+    kill(getpid(), signal)
 }
 
 struct DeadlineExceeded: Error {}
