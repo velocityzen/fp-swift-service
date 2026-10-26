@@ -2,6 +2,8 @@
     import Darwin
 #elseif canImport(Glibc)
     import Glibc
+#elseif canImport(Musl)
+    import Musl
 #endif
 import ProcessSignals
 import Testing
@@ -176,6 +178,8 @@ private func disposition(_ signal: Int32) -> UInt {
     sigaction(signal, nil, &current)
     #if canImport(Darwin)
         return handlerBits(current.__sigaction_u.__sa_handler)
+    #elseif canImport(Musl)
+        return handlerBits(current.__sa_handler.sa_handler)
     #else
         return handlerBits(current.__sigaction_handler.sa_handler)
     #endif

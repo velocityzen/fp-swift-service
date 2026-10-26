@@ -33,9 +33,7 @@ public func withCancellation<Success: Sendable, Failure: Error>(
             if let result = next { return result }
         }
 
-        // Unreachable: the operation is a child, so its result always
-        // arrives above. Running it again keeps the type inhabited without a
-        // force-unwrap.
-        return await operation()
+        // The operation is a child, so its result always arrives above.
+        preconditionFailure("withCancellation(on:_:): the operation's result never arrived")
     }
 }

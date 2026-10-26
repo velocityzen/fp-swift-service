@@ -11,7 +11,6 @@
         var sources: [any DispatchSourceSignal] = []
 
         for signal in signals {
-            hold(signal)
             let source = DispatchSource.makeSignalSource(signal: signal, queue: signalQueue)
             // Dispatch coalesces deliveries that arrive before the handler
             // runs; `data` is how many there were, so a quick double Ctrl-C
@@ -25,6 +24,10 @@
                 source.setRegistrationHandler { registered.resume() }
                 source.resume()
             }
+            // Ignored only once kqueue records it: a signal sent in between
+            // has its previous effect and is delivered too, rather than
+            // being ignored and lost.
+            hold(signal)
             sources.append(source)
         }
 

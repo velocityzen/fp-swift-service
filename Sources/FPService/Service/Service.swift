@@ -31,7 +31,8 @@ import ProcessSignals
 /// 2. **cancel** — a signal during stage 1, the timeout passing, or cancelling
 ///    the calling task: the service is cancelled; dispose still runs;
 /// 3. **kill** — a signal during stage 2: the signal's default action is
-///    restored and the signal re-sent, so the process ends.
+///    restored and the signal re-sent, so the process ends (with exit status
+///    128 + the signal, if that action would leave it running).
 ///
 /// The value is `~Copyable` and the call consumes it, so it runs exactly
 /// once; the brackets inside stay reusable.
@@ -146,15 +147,36 @@ func waitForShutdown<Resource, Failure: Error>(
     return .success(())
 }
 
-/// Stage 3: restore the signal's default action and re-send it.
+/// Stage 3: restore the signal's default action and re-send it, so the
+/// process ends the way that signal ends it. A signal whose default action
+/// does not end the process (it ignores, stops or continues it) ends it with
+/// exit status 128 + the signal instead, the shell's convention.
+///
+/// Sent with `kill`, to the whole process: `raise` targets only the calling
+/// thread, and the Dispatch worker threads this runs on block asynchronous
+/// signals.
 @Sendable
 private func terminateProcess(_ signal: Int32) {
+    guard !survivableSignals.contains(signal) else { _exit(128 + signal) }
     var action = sigaction()
     #if canImport(Darwin)
         action.__sigaction_u.__sa_handler = SIG_DFL
+    #elseif canImport(Musl)
+        action.__sa_handler.sa_handler = SIG_DFL
     #else
         action.__sigaction_handler.sa_handler = SIG_DFL
     #endif
     sigaction(signal, &action, nil)
-    raise(signal)
+    kill(getpid(), signal)
 }
+
+/// Signals whose default action leaves the process running: ignore, stop or
+/// continue (see ProcessSignals' signal reference).
+private let survivableSignals: [Int32] =
+    [SIGCHLD, SIGCONT, SIGURG, SIGWINCH, SIGTSTP, SIGTTIN, SIGTTOU] + platformSurvivableSignals
+
+#if canImport(Darwin)
+    private let platformSurvivableSignals: [Int32] = [SIGINFO, SIGIO]
+#else
+    private let platformSurvivableSignals: [Int32] = []
+#endif

@@ -246,7 +246,7 @@ Dispose runs after the body returns, so a resource drains and closes in its own 
 |---|---|---|
 | 1. graceful | a signal, or the body returning | `shutdown` is requested; the `shutdownTimeout` clock starts |
 | 2. cancel | a signal during stage 1, the timeout passing, or cancelling the calling task | the service is cancelled; dispose still runs |
-| 3. kill | a signal during stage 2 | the signal's default action is restored and the signal re-sent; the process ends |
+| 3. kill | a signal during stage 2 | the signal's default action is restored and the signal re-sent; the process ends (with exit status 128 + the signal, if that action would leave it running) |
 
 Each signal from `shutdownSignals` moves the stop one stage forward. The signals are taken over before acquire and released after dispose, so they can never kill the process mid-cleanup by accident.
 
@@ -304,7 +304,7 @@ A `Service` value runs once; calling it twice doesn't compile. Brackets stay reu
 .success(.stopped(ServiceOutcome(shutdownReason: .signal(SIGTERM), cancellationReason: .signal(SIGTERM), stopDuration: …)))
 ```
 
-Failures arrive as `.failure` where they happen. A run whose acquire failed ends with `.failure(.startFailed)` instead of `.stopped`. If the calling task is cancelled, the observer is cancelled too and may miss the last events; the result still reports the cancellation.
+Failures arrive as `.failure`, each once, where it happens: `.startFailed`, `.serveFailed`, `.shutdownTimeout(after:)` and `.stopFailed`; the result combines them (for example into `.serveAndStopFailed`). A run whose acquire failed ends with `.failure(.startFailed)` instead of `.stopped`. If the calling task is cancelled, the observer is cancelled too and may miss the last events; the result still reports the cancellation.
 
 ### Notes
 

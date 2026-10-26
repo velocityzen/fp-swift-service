@@ -92,7 +92,8 @@ final class ServiceRun<Failure: Error>: Sendable {
     }
 
     /// The bracket call returned: acquire's failure before `ready`,
-    /// dispose's after.
+    /// dispose's after. Each failure is one event, as it happens; only the
+    /// result combines them.
     func finished(_ result: Result<Void, Failure>) {
         let now = clock.now()
         state.withLock { state in
@@ -104,11 +105,7 @@ final class ServiceRun<Failure: Error>: Sendable {
                 emit(.failure(.startFailed(error)))
             } else {
                 state.stopFailure = error
-                if let serve = state.serveFailure {
-                    emit(.failure(.serveAndStopFailed(serve: serve, stop: error)))
-                } else {
-                    emit(.failure(.stopFailed(error)))
-                }
+                emit(.failure(.stopFailed(error)))
             }
         }
         done.open()
@@ -156,8 +153,7 @@ final class ServiceRun<Failure: Error>: Sendable {
         emit(.success(.cancelling(reason)))
         if case .shutdownTimeout(let after) = reason {
             state.timedOut = after
-            // Dispose has not finished yet, so only a serve failure is known.
-            emit(.failure(.shutdownTimeout(after: after, serve: state.serveFailure)))
+            emit(.failure(.shutdownTimeout(after: after)))
         }
         return true
     }

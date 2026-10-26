@@ -1,4 +1,4 @@
-#if !canImport(Darwin)
+#if canImport(Glibc) || canImport(Musl)
     #if canImport(Glibc)
         import Glibc
     #elseif canImport(Musl)
@@ -158,7 +158,11 @@
         /// Installs ``handleSignal(_:)``, returning the previous disposition.
         static func takeOver(_ signal: Int32) -> Disposition {
             var handler = sigaction()
-            handler.__sigaction_handler.sa_handler = handleSignal
+            #if canImport(Musl)
+                handler.__sa_handler.sa_handler = handleSignal
+            #else
+                handler.__sigaction_handler.sa_handler = handleSignal
+            #endif
             handler.sa_flags = SA_RESTART
             sigemptyset(&handler.sa_mask)
             var previous = sigaction()

@@ -14,23 +14,45 @@ jobs:
   lint:
     name: Lint
     runs-on: macos-26
+    env:
+      # swift-format comes with the toolchain, so it is pinned with it.
+      SWIFT_VERSION: "6.4"
+      SWIFTLINT_VERSION: "0.65.1"
+      SWIFTLINT_SHA256: c1e429b0599cf1b516f369a2d9ec04eaf0e436f3c12b637df8851fa52ff694d0
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - name: Install swift-format and SwiftLint
-        run: brew install swift-format swiftlint
+      - name: Install Swift ${{ env.SWIFT_VERSION }}
+        run: |
+          curl -fsSLO https://download.swift.org/swiftly/darwin/swiftly.pkg
+          installer -pkg swiftly.pkg -target CurrentUserHomeDirectory
+          ~/.swiftly/bin/swiftly init --assume-yes --quiet-shell-followup --skip-install
+          . "$HOME/.swiftly/env.sh"
+          swiftly install --assume-yes --use "$SWIFT_VERSION"
+          echo "$HOME/.swiftly/bin" >> "$GITHUB_PATH"
+
+      - name: Install SwiftLint ${{ env.SWIFTLINT_VERSION }}
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsSLo swiftlint.zip "https://github.com/realm/SwiftLint/releases/download/$SWIFTLINT_VERSION/portable_swiftlint.zip"
+          echo "$SWIFTLINT_SHA256  swiftlint.zip" | shasum -a 256 -c -
+          unzip -q swiftlint.zip -d swiftlint
+          echo "$RUNNER_TEMP/swiftlint" >> "$GITHUB_PATH"
 
       - name: Show tool versions
         run: |
-          swift-format --version
+          swift format --version
           swiftlint --version
 
       - name: swift-format (lint mode, strict)
-        run: swift-format lint --recursive --strict --configuration .swift-format Sources Tests
+        run: swift format lint --recursive --strict --configuration .swift-format Sources Tests
 
       - name: SwiftLint (strict)
         run: swiftlint --strict
+
+      - name: Docs show the Example verbatim
+        run: python3 Scripts/check-docs.py
 
   macos:
     name: Test macOS
@@ -39,7 +61,7 @@ jobs:
       SWIFT_VERSION: "6.4"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # The runner's default Xcode may ship an older Swift; install the exact
       # toolchain with swiftly (swift.org's installer) so macOS and Linux
@@ -65,6 +87,9 @@ jobs:
       - name: Test
         run: swift test
 
+      - name: Test with Thread Sanitizer
+        run: swift test --sanitize=thread
+
   linux:
     name: Test Linux
     runs-on: ubuntu-latest
@@ -72,7 +97,7 @@ jobs:
       image: swift:6.4
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Show Swift version
         run: swift --version

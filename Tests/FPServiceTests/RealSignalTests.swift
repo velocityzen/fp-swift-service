@@ -2,6 +2,8 @@
     import Darwin
 #elseif canImport(Glibc)
     import Glibc
+#elseif canImport(Musl)
+    import Musl
 #endif
 import FPBracket
 import FPService
@@ -36,6 +38,8 @@ private func disposition(_ signal: Int32) -> UInt {
     sigaction(signal, nil, &current)
     #if canImport(Darwin)
         return unsafeBitCast(current.__sigaction_u.__sa_handler, to: UInt.self)
+    #elseif canImport(Musl)
+        return unsafeBitCast(current.__sa_handler.sa_handler, to: UInt.self)
     #else
         return unsafeBitCast(current.__sigaction_handler.sa_handler, to: UInt.self)
     #endif

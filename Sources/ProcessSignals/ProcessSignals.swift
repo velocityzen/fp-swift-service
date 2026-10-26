@@ -1,5 +1,9 @@
 import Synchronization
 
+#if !canImport(Darwin) && !canImport(Glibc) && !canImport(Musl)
+    #error("ProcessSignals supports Darwin, Glibc (Linux) and Musl (static Linux) only")
+#endif
+
 /// Takes over `signals` and delivers each one as it arrives.
 ///
 /// ```swift
@@ -15,7 +19,8 @@ import Synchronization
 ///   (Darwin's kqueue still counts every send).
 /// - An empty `signals` list gives a stream that is already finished.
 /// - Returns once the signals are taken over, so a signal sent right after
-///   this call is not missed.
+///   this call is not missed. One sent during the call is never lost either:
+///   it has its previous effect, or is delivered, or both.
 /// - While the stream lives, the signals' default actions are off, so they
 ///   can't end the process.
 /// - The stream ends when the task iterating it is cancelled, or when the

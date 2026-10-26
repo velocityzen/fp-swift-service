@@ -2,6 +2,8 @@
     import Darwin
 #elseif canImport(Glibc)
     import Glibc
+#elseif canImport(Musl)
+    import Musl
 #endif
 import FPBracket
 @testable import FPService
@@ -115,7 +117,7 @@ struct TimeoutTests {
             harness.log.events == [
                 "started", "ready", "failed: serve", "shutting down: serve returned",
                 "cancelling: shutdown timeout", "failed: shutdown timeout",
-                "failed: serve and stop", "stopped",
+                "failed: stop", "stopped",
             ]
         )
     }

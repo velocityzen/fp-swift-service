@@ -2,6 +2,8 @@
     import Darwin
 #elseif canImport(Glibc)
     import Glibc
+#elseif canImport(Musl)
+    import Musl
 #endif
 import FPBracket
 @testable import FPService
@@ -117,6 +119,31 @@ struct StoppingTests {
                 "signal 15", "cancelling: signal 15",
                 "signal 15",
                 "stopped",
+            ]
+        )
+    }
+
+    @Test("a signal during acquire requests shutdown before serve begins")
+    func signalDuringAcquire() async throws {
+        let harness = Harness()
+        let gate = Latch()
+        let log = harness.log
+        let result = try await run(
+            harness,
+            waitingFor: ["start:a"],
+            then: {
+                harness.send(SIGTERM)
+                await log.wait(for: "event: shutting down: signal 15")
+                gate.open()
+            },
+            service: { probe("a", log, startGate: gate) }
+        )
+
+        #expect(try result.get().shutdownReason == .signal(SIGTERM))
+        #expect(log.all.contains("shutdown requested: true"))
+        #expect(
+            log.events == [
+                "started", "signal 15", "shutting down: signal 15", "ready", "stopped",
             ]
         )
     }

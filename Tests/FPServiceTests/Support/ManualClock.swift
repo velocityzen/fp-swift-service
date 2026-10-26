@@ -1,3 +1,4 @@
+@testable import FPService
 import Synchronization
 
 /// A clock that only moves when a test advances it, so deadlines elapse
@@ -21,6 +22,8 @@ final class ManualClock: Clock, Sendable {
         var now = Instant(offset: .zero)
         var sleepers: [Sleeper] = []
         var nextID = 0
+        /// Waits for a number of pending sleeps, opened once there are as many.
+        var waiters: [(count: Int, gate: Gate)] = []
     }
 
     private let state = Mutex(State())
@@ -39,14 +42,18 @@ final class ManualClock: Clock, Sendable {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation {
                 (continuation: CheckedContinuation<Void, any Error>) in
-                let immediate: Bool? = state.withLock { state in
-                    if deadline <= state.now { return true }
-                    if Task.isCancelled { return false }
+                let (immediate, satisfied) = state.withLock { state -> (Bool?, [Gate]) in
+                    if deadline <= state.now { return (true, []) }
+                    if Task.isCancelled { return (false, []) }
                     state.sleepers.append(
                         Sleeper(id: id, deadline: deadline, continuation: continuation)
                     )
-                    return nil
+                    let pending = state.sleepers.count
+                    let satisfied = state.waiters.filter { $0.count <= pending }.map(\.gate)
+                    state.waiters.removeAll { $0.count <= pending }
+                    return (nil, satisfied)
                 }
+                satisfied.forEach { $0.open() }
                 switch immediate {
                     case true?: continuation.resume()
                     case false?: continuation.resume(throwing: CancellationError())
@@ -73,10 +80,18 @@ final class ManualClock: Clock, Sendable {
         due.forEach { $0.continuation.resume() }
     }
 
-    /// Waits until at least `count` sleeps are pending.
+    /// Waits (without spinning) until at least `count` sleeps are pending, or
+    /// the task is cancelled.
     func waitForSleepers(_ count: Int = 1) async {
-        while sleepers < count, !Task.isCancelled {
-            await Task.yield()
+        let gate = state.withLock { state in
+            let gate = Gate()
+            if state.sleepers.count >= count {
+                gate.open()
+            } else {
+                state.waiters.append((count, gate))
+            }
+            return gate
         }
+        await gate.opened
     }
 }

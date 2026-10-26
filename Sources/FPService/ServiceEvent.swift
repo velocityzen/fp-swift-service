@@ -1,9 +1,11 @@
 /// A step in a service's life, delivered to the observer as
-/// `.success(event)` in ``ServiceEvents``; failures arrive as `.failure`.
+/// `.success(event)` in ``ServiceEvents``. Failures arrive as `.failure`, each
+/// once, where it happens: `startFailed`, `serveFailed`,
+/// `shutdownTimeout(after:)` and `stopFailed`. The run's result combines them.
 ///
 /// In order: `started`, `ready`, then — as they happen — `signal`,
 /// `shuttingDown`, `cancelling`, and finally `stopped`.
-public enum ServiceEvent: Sendable {
+public enum ServiceEvent: Sendable, Equatable {
     /// Acquire began.
     case started
     /// Acquire succeeded; `serve` began.

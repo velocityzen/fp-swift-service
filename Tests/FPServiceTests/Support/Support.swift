@@ -24,13 +24,23 @@ func withDeadline<T: Sendable>(
 /// An ordered record of what happened, shared by a test, its brackets, its
 /// `serve` and its observer.
 final class Recorder: Sendable {
-    private let entries = Mutex<[String]>([])
-
-    func append(_ entry: String) {
-        entries.withLock { $0.append(entry) }
+    private struct State {
+        var entries: [String] = []
+        /// One gate per entry someone waits for, opened once it is recorded.
+        var awaited: [String: Gate] = [:]
     }
 
-    var all: [String] { entries.withLock { $0 } }
+    private let state = Mutex(State())
+
+    func append(_ entry: String) {
+        let gate = state.withLock { state in
+            state.entries.append(entry)
+            return state.awaited[entry]
+        }
+        gate?.open()
+    }
+
+    var all: [String] { state.withLock { $0.entries } }
 
     /// Entries starting with `prefix`, e.g. `"stop:"`.
     func with(prefix: String) -> [String] { all.filter { $0.hasPrefix(prefix) } }
@@ -38,11 +48,17 @@ final class Recorder: Sendable {
     /// The events the observer saw, without the prefix.
     var events: [String] { with(prefix: "event: ").map { String($0.dropFirst("event: ".count)) } }
 
-    /// Waits (without sleeping) until `entry` has been recorded.
+    /// Waits (without sleeping or spinning) until `entry` has been recorded,
+    /// or the task is cancelled.
     func wait(for entry: String) async {
-        while !all.contains(entry), !Task.isCancelled {
-            await Task.yield()
+        let gate = state.withLock { state in
+            if let gate = state.awaited[entry] { return gate }
+            let gate = Gate()
+            if state.entries.contains(entry) { gate.open() }
+            state.awaited[entry] = gate
+            return gate
         }
+        await gate.opened
     }
 }
 
@@ -65,11 +81,13 @@ func probe(
     _ log: Recorder,
     start: Result<Void, TestError> = .success(()),
     stop: Result<Void, TestError> = .success(()),
+    startGate: Latch? = nil,
     stopGate: Latch? = nil
 ) -> BracketAsync<String, TestError> {
     BracketAsync(
         acquire: {
             log.append("start:\(name)")
+            if let startGate { await startGate.wait() }
             return start.map { name }
         },
         dispose: { _ in

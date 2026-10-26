@@ -10,7 +10,7 @@
 /// The core does not import Foundation, so this is not a `LocalizedError`;
 /// `errorDescription` has the same meaning, and a host that uses Foundation
 /// can add the conformance in one line.
-public indirect enum ServiceError<Failure: Error>: Error, CustomStringConvertible {
+public enum ServiceError<Failure: Error>: Error, CustomStringConvertible {
     /// Acquire failed; `serve` and dispose were skipped.
     case startFailed(Failure)
     /// `serve` failed; dispose then ran cleanly.
@@ -66,6 +66,8 @@ public indirect enum ServiceError<Failure: Error>: Error, CustomStringConvertibl
     /// The same as ``errorDescription``.
     public var description: String { errorDescription ?? "ServiceError" }
 }
+
+extension ServiceError: Equatable where Failure: Equatable {}
 
 /// The three phases of a service.
 public enum ServicePhase: String, Sendable, Equatable {

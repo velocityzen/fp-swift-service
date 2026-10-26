@@ -12,7 +12,7 @@ for await signal in await processSignals([SIGTERM, SIGINT]) {
 }
 ```
 
-- **Startup:** ``processSignals(_:)`` returns once every source is registered, so a signal sent right after the call is not missed.
+- **Startup:** ``processSignals(_:)`` returns once every signal is taken over, so a signal sent right after the call is not missed. One sent during the call has its previous effect or is delivered; it is never lost.
 - **Deliveries:** each delivery is one element. Signals sent in the same instant can merge: the kernel keeps only one pending instance of a standard signal (Darwin's kqueue still counts every send).
 - **While the stream lives:** the signals' default actions are off, so they can't end the process.
 - **Ending the stream:** cancelling the task that iterates it ends it. That releases the signals; the last stream holding a signal restores its previous disposition. Breaking out of the loop does not end the stream while it is still referenced.
