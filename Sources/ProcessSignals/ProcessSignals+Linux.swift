@@ -74,12 +74,8 @@
         private let reader: any DispatchSourceRead
 
         private init?() {
-            var ends: [Int32] = [-1, -1]
-            // Non-blocking both ways: the handler must never block on a full
-            // pipe, and the reader drains until it is empty.
-            guard pipe2(&ends, O_CLOEXEC | O_NONBLOCK) == 0 else { return nil }
-            let readEnd = ends[0]
-            pipeWriteEnd.store(ends[1], ordering: .releasing)
+            guard let (readEnd, writeEnd) = makePipe() else { return nil }
+            pipeWriteEnd.store(writeEnd, ordering: .releasing)
 
             reader = DispatchSource.makeReadSource(
                 fileDescriptor: readEnd,
@@ -114,6 +110,25 @@
         func unroute(_ signal: Int32) {
             _ = routes.withLock { $0.removeValue(forKey: signal) }
         }
+    }
+
+    /// A pipe whose ends are both close-on-exec and non-blocking: the handler
+    /// must never block on a full pipe, and the reader drains until it is
+    /// empty. (`pipe` plus `fcntl`, because glibc only declares `pipe2` under
+    /// `_GNU_SOURCE`, which Swift's Glibc module does not define.)
+    private func makePipe() -> (read: Int32, write: Int32)? {
+        var ends: [Int32] = [-1, -1]
+        guard pipe(&ends) == 0 else { return nil }
+        for end in ends {
+            let flags = fcntl(end, F_GETFL)
+            guard fcntl(end, F_SETFD, FD_CLOEXEC) == 0,
+                flags >= 0, fcntl(end, F_SETFL, flags | O_NONBLOCK) == 0
+            else {
+                ends.forEach { close($0) }
+                return nil
+            }
+        }
+        return (ends[0], ends[1])
     }
 
     /// A signal's disposition from before the stream took it over.
