@@ -11,8 +11,7 @@ import Testing
 /// test run. They change process-wide dispositions, so they run one at a time.
 ///
 /// Signals are sent with `kill(getpid(), …)`, to the whole process, like a
-/// real `kill` or Ctrl-C. (`raise` targets only the calling thread, and on
-/// Linux libdispatch receives signals on a thread of its own.)
+/// real `kill` or Ctrl-C. (`raise` targets only the calling thread.)
 @Suite("processSignals", .serialized, .timeLimit(.minutes(1)))
 struct ProcessSignalsTests {
     @Test("delivers each signal")
@@ -24,9 +23,9 @@ struct ProcessSignalsTests {
     }
 
     #if canImport(Darwin)
-        // Darwin's kqueue counts every delivery. Linux merges a standard
-        // signal sent while the same one is still pending (POSIX), so this
-        // only holds on Darwin.
+        // Darwin's kqueue counts every send. With a signal handler (Linux),
+        // the kernel keeps only one pending instance of a standard signal, so
+        // copies sent in the same instant can merge: this holds on Darwin only.
         @Test("signals sent back to back stay separate elements")
         func coalesced() async throws {
             let stream = await processSignals([SIGWINCH])
@@ -75,12 +74,9 @@ struct ProcessSignalsTests {
                 return await group.next().flatMap { $0 }
             }
         }
+        #expect(during != original)  // taken over while the stream ran
         #if canImport(Darwin)
-            // Darwin ignores the signal while kqueue receives it; on Linux,
-            // libdispatch manages the disposition itself.
-            #expect(during == handlerBits(SIG_IGN))
-        #else
-            _ = during
+            #expect(during == handlerBits(SIG_IGN))  // kqueue reads it; Linux uses a handler
         #endif
         #expect(disposition(SIGURG) == original)
     }

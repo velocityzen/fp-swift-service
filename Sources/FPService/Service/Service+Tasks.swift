@@ -46,7 +46,7 @@ func superviseBracket<Resource, Failure: Error>(
 
 /// Reads signals, and runs the `shutdownTimeout` timer from the start of
 /// stage 1, until the bracket has finished. Ending it ends the signal stream,
-/// which restores the dispositions.
+/// which releases the signals.
 func watchSignalsAndTimeout<Failure: Error>(
     _ signals: AsyncStream<Int32>,
     timeout: Duration?,

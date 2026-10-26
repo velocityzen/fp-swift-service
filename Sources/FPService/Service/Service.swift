@@ -98,8 +98,8 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
     ///
     /// - Returns: the ``ServiceOutcome``, or a ``ServiceError`` naming the phase that
     ///   failed with the service's own error. Returns after dispose has
-    ///   finished, the signal dispositions are restored and the observer has
-    ///   returned.
+    ///   finished, the signals are released (on Darwin, their previous
+    ///   dispositions restored) and the observer has returned.
     public consuming func callAsFunction(
         _ serve: sending @escaping (Resource, Shutdown) async -> Result<Void, Failure> =
             waitForShutdown
