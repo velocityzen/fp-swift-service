@@ -25,10 +25,6 @@
 ///     return .success(())
 /// }
 /// ```
-///
-/// Like fp-swift's `withTimeout`, but triggered by a shutdown request rather
-/// than a duration, and returning the operation's own result instead of a
-/// fixed error.
 public func withCancellation<Success: Sendable, Failure: Error>(
     on shutdown: Shutdown,
     _ operation: @escaping @Sendable () async -> Result<Success, Failure>
@@ -43,9 +39,12 @@ public func withCancellation<Success: Sendable, Failure: Error>(
         // The first child to finish cancels the other. Shutdown (or the
         // caller's cancellation) only cancels the operation; the call keeps
         // waiting for the operation's own result.
-        while let next = await group.next() {
+        while let result = await group.next() {
             group.cancelAll()
-            if let result = next { return result }
+
+            if let result {
+                return result
+            }
         }
 
         // The operation is a child, so its result always arrives above.

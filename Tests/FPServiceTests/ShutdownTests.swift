@@ -5,15 +5,15 @@ import Testing
 
 @Suite("Shutdown", .timeLimit(.minutes(1)))
 struct ShutdownTests {
-    @Test("triggering runs handlers once, in registration order")
+    @Test("requesting runs handlers once, in registration order")
     func handlers() {
         let shutdown = Shutdown()
         let order = Mutex<[Int]>([])
         for index in 0..<3 {
             shutdown.onShutdown { order.withLock { $0.append(index) } }
         }
-        #expect(shutdown.trigger())
-        #expect(!shutdown.trigger())
+        #expect(shutdown.request())
+        #expect(!shutdown.request())
         #expect(shutdown.isRequested)
         #expect(order.withLock { $0 } == [0, 1, 2])
     }
@@ -21,7 +21,7 @@ struct ShutdownTests {
     @Test("late registration fires immediately")
     func lateRegistration() {
         let shutdown = Shutdown()
-        shutdown.trigger()
+        shutdown.request()
         let fired = Mutex(false)
         shutdown.onShutdown { fired.withLock { $0 = true } }
         #expect(fired.withLock { $0 })
@@ -33,7 +33,7 @@ struct ShutdownTests {
         let fired = Mutex(false)
         let handler: @Sendable () -> Void = { fired.withLock { $0 = true } }
         let value = await withShutdownHandler(on: shutdown, handler) { 42 }
-        shutdown.trigger()
+        shutdown.request()
         #expect(value == 42)
         #expect(!fired.withLock { $0 })
     }
@@ -45,17 +45,17 @@ struct ShutdownTests {
         let registration = shutdown.onShutdown { fired.withLock { $0 = true } }
         registration.remove()
         registration.remove()
-        shutdown.trigger()
+        shutdown.request()
         #expect(!fired.withLock { $0 })
     }
 
-    @Test("awaiting requested returns once triggered, and at once afterwards")
+    @Test("awaiting requested returns once requested, and at once afterwards")
     func awaitRequested() async throws {
         let shutdown = Shutdown()
         try await withDeadline {
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { await shutdown.requested }
-                group.addTask { shutdown.trigger() }
+                group.addTask { shutdown.request() }
             }
         }
         await shutdown.requested
@@ -81,34 +81,17 @@ struct ShutdownTests {
         let handler: @Sendable () -> Void = { fired.withLock { $0 = true } }
         let value = try await withDeadline {
             await withShutdownHandler(on: shutdown, handler) {
-                shutdown.trigger()
+                shutdown.request()
                 return fired.withLock { $0 } ? "drained after the handler" : "handler did not fire"
             }
         }
         #expect(value == "drained after the handler")
     }
 
-    @Test("makeShutdown gives a shutdown and the function that requests it, once")
-    func makeShutdown() async throws {
-        let (shutdown, request) = Shutdown.makeShutdown()
-        let fired = Mutex(0)
-        shutdown.onShutdown { fired.withLock { $0 += 1 } }
-        #expect(!shutdown.isRequested)
-        try await withDeadline {
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { await shutdown.requested }
-                group.addTask { request() }
-            }
-        }
-        request()
-        #expect(shutdown.isRequested)
-        #expect(fired.withLock { $0 } == 1)
-    }
-
     @Test("a scoped handler fires at once if shutdown was already requested")
     func handlerAlreadyRequested() async {
         let shutdown = Shutdown()
-        shutdown.trigger()
+        shutdown.request()
         let order = Mutex<[String]>([])
         let handler: @Sendable () -> Void = { order.withLock { $0.append("handler") } }
         await withShutdownHandler(on: shutdown, handler) {

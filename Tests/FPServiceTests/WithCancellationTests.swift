@@ -28,7 +28,7 @@ struct WithCancellationTests {
             await withTaskGroup(of: Result<String, TestError>?.self) { group in
                 group.addTask { await withCancellation(on: shutdown, untilCancelled) }
                 group.addTask {
-                    shutdown.trigger()
+                    shutdown.request()
                     return nil
                 }
                 var result: Result<String, TestError>?
@@ -52,7 +52,7 @@ struct WithCancellationTests {
     @Test("an already requested shutdown cancels the operation right away")
     func alreadyRequested() async throws {
         let shutdown = Shutdown()
-        shutdown.trigger()
+        shutdown.request()
         let result = try await withDeadline { await withCancellation(on: shutdown, untilCancelled) }
         #expect(result == .success("cancelled"))
     }

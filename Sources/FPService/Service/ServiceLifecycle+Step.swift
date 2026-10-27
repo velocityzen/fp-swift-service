@@ -1,9 +1,10 @@
 // The stage machine of one run, as a pure function: `State.step(_:)` takes
 // what happened and returns the events it causes, in order, and the effect to
 // carry out. No clock, lock or I/O, so tests drive it through a table of
-// cases; `ServiceRun` calls it under its lock and carries out the effect.
+// cases; the loop in `ServiceLifecycle.run` takes each step and carries out
+// its effect.
 
-extension ServiceRun {
+extension ServiceLifecycle {
     enum Stage: Sendable {
         case running
         /// Stage 1.
@@ -31,11 +32,10 @@ extension ServiceRun {
         case cancel(CancellationReason)
     }
 
-    /// What a step does besides changing the state, carried out after the
-    /// lock is released.
+    /// What a step does besides changing the state, carried out by the loop.
     enum Effect: Sendable, Equatable {
         case none
-        /// Stage 1 began: request the shutdown.
+        /// Stage 1 began: start the timeout and request the shutdown.
         case graceful
         /// Stage 2 began: cancel the service.
         case cancel

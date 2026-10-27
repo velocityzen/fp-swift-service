@@ -138,7 +138,7 @@ let result = await withService(importBatches)
 
 `swift run Example requests`, then Ctrl-C.
 
-A body that runs until it is told to stop needs to know when a stop was requested, from a signal, say. That is its second argument, `Shutdown`. It's read-only: the body still stops by returning.
+A body that runs until it is told to stop needs to know when a stop was requested, from a signal, say. That is its second argument, `Shutdown`, which the run requests when the graceful stage begins. The body still stops by returning.
 
 The simplest way to use it is `withCancellation(on: shutdown, work)`. It runs `work` and returns its result; if shutdown is requested first, `work` is cancelled, and the call waits for it to return. A failure that happens before shutdown comes back at once.
 
@@ -174,7 +174,7 @@ let withService = Service(
 let result = await withService(handleRequests)
 ```
 
-For anything else, `shutdown.isRequested` and `await shutdown.requested` read it directly.
+For anything else, `shutdown.isRequested` and `await shutdown.requested` read it directly. To test a body on its own, make a `Shutdown()` and call `request()` on it.
 
 ## Draining
 

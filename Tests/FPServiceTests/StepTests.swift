@@ -8,7 +8,7 @@
 @testable import FPService
 import Testing
 
-private typealias Run = ServiceRun<TestError>
+private typealias Lifecycle = ServiceLifecycle<TestError>
 
 /// The stage machine on its own: from a state, one input, to the events, the
 /// effect and the stage it gives. No tasks, clocks or signals.
@@ -30,31 +30,31 @@ struct StepTests {
 
     @Test("stage 1 records when it began, from a signal or from serve returning")
     func shutdownBegan() {
-        var signalled = Run.State()
+        var signalled = Lifecycle.State()
         _ = signalled.step(.signal(SIGTERM, at: .seconds(2)))
         #expect(signalled.shutdownBegan == .seconds(2))
 
-        var returned = Run.State(ready: true)
+        var returned = Lifecycle.State(ready: true)
         _ = returned.step(.served(.success(()), cancelled: false, at: .seconds(3)))
         #expect(returned.shutdownBegan == .seconds(3))
 
-        var cancelled = Run.State(ready: true)
+        var cancelled = Lifecycle.State(ready: true)
         _ = cancelled.step(.served(.success(()), cancelled: true, at: .seconds(3)))
         #expect(cancelled.shutdownBegan == nil)
     }
 
     @Test("only a service that started ends with stopped")
     func lastEvent() {
-        #expect(Run.State().lastEvent.map(describe) == "stopped")
-        #expect(Run.State(startFailure: .boom("start")).lastEvent == nil)
-        #expect(Run.State(unavailableSignals: [SIGKILL]).lastEvent == nil)
+        #expect(Lifecycle.State().lastEvent.map(describe) == "stopped")
+        #expect(Lifecycle.State(startFailure: .boom("start")).lastEvent == nil)
+        #expect(Lifecycle.State(unavailableSignals: [SIGKILL]).lastEvent == nil)
     }
 }
 
-private let running = Run.State()
-private let graceful = Run.State(stage: .graceful, ready: true)
-private let cancelling = Run.State(stage: .cancelling, ready: true)
-private let returned = Run.State(stage: .graceful, ready: true, finished: true)
+private let running = Lifecycle.State()
+private let graceful = Lifecycle.State(stage: .graceful, ready: true)
+private let cancelling = Lifecycle.State(stage: .cancelling, ready: true)
+private let returned = Lifecycle.State(stage: .graceful, ready: true, finished: true)
 
 private let steps: [StepRow] = [
     StepRow(
@@ -91,7 +91,7 @@ private let steps: [StepRow] = [
     ),
     StepRow(
         "serve returning begins stage 1",
-        Run.State(ready: true),
+        Lifecycle.State(ready: true),
         .served(.success(()), cancelled: false, at: .zero),
         events: ["shutting down: serve returned"],
         effect: .graceful,
@@ -99,7 +99,7 @@ private let steps: [StepRow] = [
     ),
     StepRow(
         "a serve failure comes before stage 1",
-        Run.State(ready: true),
+        Lifecycle.State(ready: true),
         .served(.failure(.boom("serve")), cancelled: false, at: .zero),
         events: ["failed: serve", "shutting down: serve returned"],
         effect: .graceful,
@@ -115,7 +115,7 @@ private let steps: [StepRow] = [
     ),
     StepRow(
         "a cancelled serve never begins stage 1",
-        Run.State(ready: true),
+        Lifecycle.State(ready: true),
         .served(.success(()), cancelled: true, at: .zero),
         events: [],
         effect: .none,
@@ -182,7 +182,7 @@ private let steps: [StepRow] = [
 private let results: [ResultRow] = [
     ResultRow(
         "a clean run's outcome measures the shutdown and the stop",
-        Run.State(
+        Lifecycle.State(
             stage: .graceful,
             shutdownReason: .signal(SIGTERM),
             ready: true,
@@ -202,32 +202,36 @@ private let results: [ResultRow] = [
     ),
     ResultRow(
         "unavailable signals: nothing ran",
-        Run.State(unavailableSignals: [SIGKILL]),
+        Lifecycle.State(unavailableSignals: [SIGKILL]),
         .failure(.signalsUnavailable([SIGKILL]))
     ),
     ResultRow(
         "a start failure comes before a timeout",
-        Run.State(startFailure: .boom("start"), timedOut: .seconds(5)),
+        Lifecycle.State(startFailure: .boom("start"), timedOut: .seconds(5)),
         .failure(.startFailed(.boom("start")))
     ),
     ResultRow(
         "a timeout carries the serve and dispose failures",
-        Run.State(serveFailure: .boom("serve"), stopFailure: .boom("stop"), timedOut: .seconds(5)),
+        Lifecycle.State(
+            serveFailure: .boom("serve"),
+            stopFailure: .boom("stop"),
+            timedOut: .seconds(5)
+        ),
         .failure(.shutdownTimeout(after: .seconds(5), serve: .boom("serve"), stop: .boom("stop")))
     ),
     ResultRow(
         "serve and dispose failures are both kept",
-        Run.State(serveFailure: .boom("serve"), stopFailure: .boom("stop")),
+        Lifecycle.State(serveFailure: .boom("serve"), stopFailure: .boom("stop")),
         .failure(.serveAndStopFailed(serve: .boom("serve"), stop: .boom("stop")))
     ),
     ResultRow(
         "a serve failure",
-        Run.State(serveFailure: .boom("serve")),
+        Lifecycle.State(serveFailure: .boom("serve")),
         .failure(.serveFailed(.boom("serve")))
     ),
     ResultRow(
         "a dispose failure",
-        Run.State(stopFailure: .boom("stop")),
+        Lifecycle.State(stopFailure: .boom("stop")),
         .failure(.stopFailed(.boom("stop")))
     ),
 ]
@@ -235,19 +239,19 @@ private let results: [ResultRow] = [
 /// From `state`, `input` gives these events, effect and stage.
 private struct StepRow: Sendable, CustomTestStringConvertible {
     let name: String
-    let state: Run.State
-    let input: Run.Input
+    let state: Lifecycle.State
+    let input: Lifecycle.Input
     let events: [String]
-    let effect: Run.Effect
-    let stage: Run.Stage
+    let effect: Lifecycle.Effect
+    let stage: Lifecycle.Stage
 
     init(
         _ name: String,
-        _ state: Run.State,
-        _ input: Run.Input,
+        _ state: Lifecycle.State,
+        _ input: Lifecycle.Input,
         events: [String],
-        effect: Run.Effect,
-        stage: Run.Stage
+        effect: Lifecycle.Effect,
+        stage: Lifecycle.Stage
     ) {
         self.name = name
         self.state = state
@@ -263,12 +267,12 @@ private struct StepRow: Sendable, CustomTestStringConvertible {
 /// `state` at the end of a run gives `result`.
 private struct ResultRow: Sendable, CustomTestStringConvertible {
     let name: String
-    let state: Run.State
+    let state: Lifecycle.State
     let result: Result<ServiceOutcome, ServiceError<TestError>>
 
     init(
         _ name: String,
-        _ state: Run.State,
+        _ state: Lifecycle.State,
         _ result: Result<ServiceOutcome, ServiceError<TestError>>
     ) {
         self.name = name

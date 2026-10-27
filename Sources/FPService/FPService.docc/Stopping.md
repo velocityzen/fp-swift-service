@@ -16,7 +16,7 @@ The ``ServiceOutcome`` records how it went: ``ServiceOutcome/shutdownReason`` sa
 
 ### Cancel the work on shutdown
 
-A body that runs until it is told to stop gets ``Shutdown`` as its second argument. It is read-only: the body stops by returning. The simplest way to react is ``withCancellation(on:_:)``: it runs the work and returns its result, and if shutdown is requested first, it cancels the work and waits for it to return (`swift run Example requests`).
+A body that runs until it is told to stop gets ``Shutdown`` as its second argument, which the run requests when stage 1 begins. The body still stops by returning. The simplest way to react is ``withCancellation(on:_:)``: it runs the work and returns its result, and if shutdown is requested first, it cancels the work and waits for it to return (`swift run Example requests`).
 
 <!-- example: requests -->
 ```swift
@@ -112,4 +112,4 @@ If the work runs on its own after acquire (its own event loop), its graceful sto
 
 ### Read it directly
 
-For anything else, ``Shutdown/isRequested`` and ``Shutdown/requested`` read the request directly.
+For anything else, ``Shutdown/isRequested`` and ``Shutdown/requested`` read the request directly. To test a body on its own, make a ``Shutdown`` and call ``Shutdown/request()`` on it.

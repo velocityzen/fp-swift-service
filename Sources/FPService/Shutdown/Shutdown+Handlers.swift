@@ -52,6 +52,6 @@ extension Shutdown {
     /// registered after the request runs at once. The caller removes it.
     @discardableResult
     func onShutdown(_ handler: @escaping @Sendable () -> Void) -> ShutdownRegistration {
-        ShutdownRegistration(shutdown: self, id: gate.onOpen(handler))
+        ShutdownRegistration(shutdown: self, id: gate.wait(handler))
     }
 }

@@ -93,9 +93,9 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
     /// Runs the service once: acquire, `serve`, dispose.
     ///
     /// `serve` is the bracket body — what runs while the service is up. It
-    /// gets the resources and the read-only ``Shutdown``, and should return
-    /// once it has stopped taking work. The default stays up until shutdown
-    /// is requested.
+    /// gets the resources and the run's ``Shutdown``, and should return once
+    /// it has stopped taking work. The default stays up until shutdown is
+    /// requested.
     ///
     /// - Returns: the ``ServiceOutcome``, or a ``ServiceError`` naming the phase that
     ///   failed with the service's own error. Returns after dispose has
@@ -116,27 +116,25 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
         if observe != nil {
             (events, continuation) = ServiceEvents<Failure>.makeStream()
         }
-        let run = ServiceRun<Failure>(
+        var lifecycle = ServiceLifecycle<Failure>(
             clock: clock,
-            continuation: continuation,
+            timeout: shutdownTimeout,
+            events: continuation,
             terminate: terminate
         )
-        let timeout = shutdownTimeout
 
         async let observed: Void = runObserver(observe, events)
         let (signals, _, unavailable) = await signalStream(shutdownSignals)
         if unavailable.isEmpty {
-            run.started()
-            async let watched: Void = watchSignalsAndTimeout(signals, timeout: timeout, run)
-            await superviseBracket(bracket, serve, run)
-            await watched
+            _ = lifecycle.take(.started)
+            lifecycle = await runLifecycle(lifecycle, bracket, serve, signals: signals)
         } else {
-            run.signalsUnavailable(unavailable)
+            _ = lifecycle.take(.signalsUnavailable(unavailable))
             await release(signals)
         }
 
-        let result = run.result()
-        run.finishEvents()
+        let result = lifecycle.result
+        lifecycle.finishEvents()
         await observed
         return result
     }

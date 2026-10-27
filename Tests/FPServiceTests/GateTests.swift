@@ -9,8 +9,8 @@ struct GateTests {
     func opens() async throws {
         let gate = Gate()
         let order = Mutex<[Int]>([])
-        gate.onOpen { order.withLock { $0.append(1) } }
-        gate.onOpen { order.withLock { $0.append(2) } }
+        gate.wait { order.withLock { $0.append(1) } }
+        gate.wait { order.withLock { $0.append(2) } }
         try await withDeadline {
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { await gate.openedOrCancelled }
@@ -26,10 +26,10 @@ struct GateTests {
     func lateAndRemoved() throws {
         let gate = Gate()
         let ran = Mutex<[String]>([])
-        let id = gate.onOpen { ran.withLock { $0.append("removed") } }
+        let id = gate.wait { ran.withLock { $0.append("removed") } }
         #expect(gate.remove(try #require(id)) != nil)
         gate.open()
-        #expect(gate.onOpen { ran.withLock { $0.append("late") } } == nil)
+        #expect(gate.wait { ran.withLock { $0.append("late") } } == nil)
         #expect(ran.withLock { $0 } == ["late"])
     }
 
@@ -45,20 +45,20 @@ struct GateTests {
         #expect(!gate.isOpen)
     }
 
-    @Test("a waiter that ignores cancellation returns only once the gate opens")
-    func ignoringCancellation() async throws {
-        let gate = Gate()
+    @Test("a latch's waiter ignores cancellation, and returns only once the latch opens")
+    func latchIgnoresCancellation() async throws {
+        let latch = Latch()
         let returned = Gate()  // a class, so the task can capture it on Swift 6.3
         try await withDeadline {
             await withTaskGroup(of: Void.self) { group in
                 group.addTask {
-                    await gate.openedIgnoringCancellation
+                    await latch.wait()
                     returned.open()
                 }
                 group.cancelAll()
                 await Task.yield()
                 #expect(!returned.isOpen)
-                gate.open()
+                latch.open()
             }
         }
         #expect(returned.isOpen)
