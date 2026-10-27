@@ -88,6 +88,19 @@ struct ShutdownTests {
         #expect(value == "drained after the handler")
     }
 
+    @MainActor
+    @Test("a scoped handler's operation runs on the caller's actor, with its state")
+    func handlerOperationOnCallerActor() async {
+        let shutdown = Shutdown()
+        var ran = false  // main-actor state the operation changes
+        let handler: @Sendable () -> Void = {}
+        await withShutdownHandler(on: shutdown, handler) {
+            MainActor.assertIsolated()
+            ran = true
+        }
+        #expect(ran)
+    }
+
     @Test("a scoped handler fires at once if shutdown was already requested")
     func handlerAlreadyRequested() async {
         let shutdown = Shutdown()

@@ -3,15 +3,15 @@ import PackageDescription
 
 let package = Package(
     name: "fp-swift-service",
-    platforms: [.macOS(.v15), .iOS(.v18), .tvOS(.v18), .watchOS(.v11), .visionOS(.v2)],
+    platforms: [.macOS(.v26), .iOS(.v26), .tvOS(.v26), .watchOS(.v26), .visionOS(.v26)],
     products: [
         .library(name: "FPService", targets: ["FPService"]),
         .library(name: "ProcessSignals", targets: ["ProcessSignals"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
-        .package(url: "https://github.com/velocityzen/fp-swift", from: "3.3.0"),
-        .package(url: "https://github.com/velocityzen/fp-swift-bracket", from: "1.3.0"),
+        .package(url: "https://github.com/velocityzen/fp-swift", from: "4.0.0"),
+        .package(url: "https://github.com/velocityzen/fp-swift-bracket", from: "2.0.0"),
     ],
     targets: [
         // The core: FPBracket (which brings FP) and ProcessSignals. No Foundation.
@@ -20,9 +20,10 @@ let package = Package(
             dependencies: [
                 "ProcessSignals",
                 .product(name: "FPBracket", package: "fp-swift-bracket"),
-            ]
+            ],
+            swiftSettings: callerIsolation
         ),
-        .target(name: "ProcessSignals"),
+        .target(name: "ProcessSignals", swiftSettings: callerIsolation),
         .executableTarget(
             name: "Example",
             dependencies: [
@@ -66,3 +67,8 @@ let package = Package(
     ],
     swiftLanguageModes: [.v6]
 )
+
+// As in fp-swift and fp-swift-bracket: async functions and closures run on
+// the caller's actor, so their non-Sendable arguments can come from
+// @MainActor code.
+var callerIsolation: [SwiftSetting] { [.enableUpcomingFeature("NonisolatedNonsendingByDefault")] }

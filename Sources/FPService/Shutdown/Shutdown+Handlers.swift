@@ -25,6 +25,9 @@
 /// process. Keep it short all the same: the service's call returns only once
 /// it has. If shutdown was already requested, it runs at once, before
 /// `operation`.
+///
+/// `operation` runs on the caller's actor, so it can use the caller's state:
+/// it need not be `Sendable`.
 public func withShutdownHandler<T>(
     on shutdown: Shutdown,
     _ handler: @escaping @Sendable () -> Void,

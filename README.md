@@ -312,7 +312,7 @@ Failures arrive as `.failure`, each once, where it happens: `.signalsUnavailable
 
 ### Notes
 
-- **Build brackets outside the main actor.** `Service` takes the bracket, the body and the observer as `sending`, so they can run in child tasks. Closures written on the main actor are isolated to it and can't be sent. Build them in top-level (`nonisolated`) functions, as the example does.
+- **Build brackets outside the main actor.** `Service` takes the bracket, the body and the observer as `sending`: they run in tasks of their own, so stage 2 can cancel them. Closures written on the main actor are isolated to it and can't be sent. Build them in top-level (`nonisolated`) functions, as the example does. The other async functions (`withShutdownHandler`'s operation, `shutdown.requested`) run on the caller's actor.
 - **Throwing code:** fp-swift-bracket's `BracketAsync.throwing(acquire:dispose:)` bridges it into a bracket.
 
 ## ProcessSignals

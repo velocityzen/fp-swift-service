@@ -33,7 +33,7 @@ import ProcessSignals
 /// once; the brackets inside stay reusable.
 public struct Service<Resource, Failure: Error>: ~Copyable {
     let bracket: BracketAsync<Resource, Failure>
-    let observe: ((ServiceEvents<Failure>) async -> Void)?
+    let observe: (@concurrent (ServiceEvents<Failure>) async -> Void)?
     let shutdownSignals: [Int32]
     let shutdownTimeout: Duration?
     let clock: ServiceClock
@@ -57,7 +57,7 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
         shutdownSignals: [Int32] = [],
         shutdownTimeout: Duration? = nil,
         clock: ServiceClock = .continuous,
-        observe: sending ((ServiceEvents<Failure>) async -> Void)? = nil
+        observe: sending (@concurrent (ServiceEvents<Failure>) async -> Void)? = nil
     ) {
         self.init(
             service,
@@ -79,7 +79,7 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
         clock: ServiceClock,
         signalStream: @escaping @Sendable ([Int32]) async -> Signals,
         terminate: @escaping @Sendable (Int32) -> Void,
-        observe: sending ((ServiceEvents<Failure>) async -> Void)?
+        observe: sending (@concurrent (ServiceEvents<Failure>) async -> Void)?
     ) {
         self.bracket = service
         self.observe = observe
@@ -102,7 +102,7 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
     ///   finished, the signals are released (their previous dispositions
     ///   restored), and the shutdown handlers and the observer have returned.
     public consuming func callAsFunction(
-        _ serve: sending @escaping (Resource, Shutdown) async -> Result<Void, Failure> =
+        _ serve: sending @escaping @concurrent (Resource, Shutdown) async -> Result<Void, Failure> =
             waitForShutdown
     ) async -> Result<ServiceOutcome, ServiceError<Failure>> {
         // Sound: `init` took both as `sending` (disconnected from the

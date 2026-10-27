@@ -26,7 +26,7 @@ import FPBracket
 func runLifecycle<Resource, Failure: Error>(
     _ lifecycle: ServiceLifecycle<Failure>,
     _ bracket: sending BracketAsync<Resource, Failure>,
-    _ serve: sending @escaping (Resource, Shutdown) async -> Result<Void, Failure>,
+    _ serve: sending @escaping @concurrent (Resource, Shutdown) async -> Result<Void, Failure>,
     signals: AsyncStream<Int32>
 ) async -> ServiceLifecycle<Failure> {
     let inbox = lifecycle.inbox
@@ -52,10 +52,12 @@ func runLifecycle<Resource, Failure: Error>(
 
 /// Runs the bracket — acquire, `serve`, dispose — telling the loop how it
 /// goes. Once `serve` returns, waits for the loop's step: if it begins stage
-/// 1, the shutdown handlers run before dispose does.
+/// 1, the shutdown handlers run before dispose does. `@concurrent`: it is
+/// the bracket's own task, off the caller's actor.
+@concurrent
 func runBracket<Resource, Failure: Error>(
     _ bracket: sending BracketAsync<Resource, Failure>,
-    _ serve: sending @escaping (Resource, Shutdown) async -> Result<Void, Failure>,
+    _ serve: sending @escaping @concurrent (Resource, Shutdown) async -> Result<Void, Failure>,
     _ shutdown: Shutdown,
     _ inbox: Inbox<Failure>
 ) async {
@@ -96,7 +98,7 @@ func release(_ signals: AsyncStream<Int32>) async {
 
 /// Runs the observer, if there is one.
 func runObserver<Failure: Error>(
-    _ observe: sending ((ServiceEvents<Failure>) async -> Void)?,
+    _ observe: sending (@concurrent (ServiceEvents<Failure>) async -> Void)?,
     _ events: ServiceEvents<Failure>?
 ) async {
     guard let observe, let events else {

@@ -25,9 +25,12 @@
 ///     return .success(())
 /// }
 /// ```
+///
+/// `operation` runs in a task of its own (`@concurrent`), off the caller's
+/// actor.
 public func withCancellation<Success: Sendable, Failure: Error>(
     on shutdown: Shutdown,
-    _ operation: @escaping @Sendable () async -> Result<Success, Failure>
+    _ operation: @concurrent @Sendable @escaping () async -> Result<Success, Failure>
 ) async -> Result<Success, Failure> {
     await withTaskGroup(of: Result<Success, Failure>?.self) { group in
         group.addTask { await operation() }
