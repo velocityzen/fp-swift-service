@@ -61,8 +61,12 @@ func runBracket<Resource, Failure: Error>(
     _ shutdown: Shutdown,
     _ inbox: Inbox<Failure>
 ) async {
-    let result = await bracket { resource in
+    let result = await bracket { acquired in
         inbox.post(.ready)
+        // Sound: the body runs in this task, off any actor, and only awaits
+        // `serve`, so nothing else reaches the resource meanwhile. Swift 6.4
+        // infers that from `@concurrent`; Swift 6.3 has to be told.
+        nonisolated(unsafe) let resource = acquired
         let served = await serve(resource, shutdown)
         await inbox.ask(.served(served, cancelled: Task.isCancelled, at: inbox.now))
         return .success(())
