@@ -66,7 +66,7 @@ struct GateTests {
 
     @Test("opening and cancelling race without losing or doubling a wake-up")
     func race() async throws {
-        try await withDeadline(.seconds(20)) {
+        try await withDeadline {
             for _ in 0..<500 {
                 let gate = Gate()
                 await withTaskGroup(of: Void.self) { group in

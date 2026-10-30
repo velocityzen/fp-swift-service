@@ -6,10 +6,17 @@ package struct DeadlineExceeded: Error {
     package init() {}
 }
 
+/// How long a test waits for something before it counts as hung. Every wait
+/// in the tests is for an event, never for time to pass, so this only
+/// decides how soon a hang fails: it is far above what a slow or loaded
+/// machine takes (a simulator on a busy runner can be twenty times slower),
+/// and below the suites' one-minute time limits.
+package let hangLimit: Duration = .seconds(30)
+
 /// Runs `operation` under a wall-clock deadline, so a bug fails the test
 /// instead of hanging the suite. Nothing sleeps unless the test hangs.
 package func withDeadline<T: Sendable>(
-    _ limit: Duration = .seconds(5),
+    _ limit: Duration = hangLimit,
     _ operation: @escaping @Sendable () async -> T
 ) async throws -> T {
     try await withTimeout(limit, failingWith: DeadlineExceeded()) {

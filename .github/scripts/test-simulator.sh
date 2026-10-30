@@ -13,13 +13,18 @@ echo "Simulator: $line"
 
 results="$RUNNER_TEMP/tests.xcresult"
 rm -rf "$results"
+status=0
 xcodebuild test -quiet -scheme fp-swift-service-Package -destination "id=$udid,arch=arm64" \
-    -resultBundlePath "$results"
+    -resultBundlePath "$results" || status=$?
 
+# The counts, and each failure's message, which `-quiet` leaves out.
 xcrun xcresulttool get test-results summary --path "$results" --compact | python3 -c '
 import json, sys
 summary = json.load(sys.stdin)
-total, passed, skipped = summary["totalTestCount"], summary["passedTests"], summary["skippedTests"]
-print(f"{total} tests: {passed} passed, {skipped} skipped, {summary['"'"'failedTests'"'"']} failed")
+total, skipped = summary["totalTestCount"], summary["skippedTests"]
+print(f"{total} tests: {summary['"'"'passedTests'"'"']} passed, {skipped} skipped, {summary['"'"'failedTests'"'"']} failed")
+for failure in summary.get("testFailures", []):
+    print(f"::error::{failure.get('"'"'testName'"'"')}: {failure.get('"'"'failureText'"'"')}")
 sys.exit(0 if total > 0 and skipped == 0 else 1)
 '
+exit "$status"

@@ -1,6 +1,7 @@
 // Windows's counterpart of Fixture.swift: there is no `posix_spawn` or
 // `kill`, and only Ctrl-Break can be sent to a process group of its own.
 #if os(Windows)
+    import ServiceTestSupport
     import Synchronization
     import WinSDK
 
@@ -105,7 +106,7 @@
 
         /// Reads output until `line` has been printed; false if the output
         /// ends, or `limit` passes, first.
-        func waitFor(_ line: String, within limit: Duration = .seconds(10)) -> Bool {
+        func waitFor(_ line: String, within limit: Duration = hangLimit) -> Bool {
             let deadline = ContinuousClock.now + limit
             while !lines.contains(line) {
                 guard readMore(until: deadline) else { return false }
@@ -115,7 +116,7 @@
 
         /// Waits for the fixture to end, and returns its exit code; `nil` if
         /// it still runs once `limit` has passed.
-        func end(within limit: Duration = .seconds(10)) -> UInt32? {
+        func end(within limit: Duration = hangLimit) -> UInt32? {
             let deadline = ContinuousClock.now + limit
             while readMore(until: deadline) {}
             let remaining = max(ContinuousClock.now.duration(to: deadline), .zero)

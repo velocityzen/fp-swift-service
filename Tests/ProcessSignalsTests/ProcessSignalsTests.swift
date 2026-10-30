@@ -204,7 +204,7 @@ func send(_ signal: Int32) {
 func collect(
     _ count: Int,
     from stream: AsyncStream<Int32>,
-    within limit: Duration = .seconds(5)
+    within limit: Duration = hangLimit
 ) async throws -> [Int32] {
     try await withThrowingTaskGroup(of: [Int32]?.self) { group in
         group.addTask {

@@ -10,6 +10,7 @@
     #elseif canImport(Android)
         import Android
     #endif
+    import ServiceTestSupport
     import Synchronization
 
     /// How a process ended.
@@ -116,7 +117,7 @@
 
         /// Reads output until `line` has been printed; false if the output ends,
         /// or `limit` passes, first.
-        func waitFor(_ line: String, within limit: Duration = .seconds(10)) -> Bool {
+        func waitFor(_ line: String, within limit: Duration = hangLimit) -> Bool {
             let deadline = ContinuousClock.now + limit
             while !lines.contains(line) {
                 guard readMore(until: deadline) else { return false }
@@ -126,7 +127,7 @@
 
         /// Waits for the fixture to end, and returns how it did; `nil` if it
         /// still runs once `limit` has passed.
-        func end(within limit: Duration = .seconds(10)) -> Ending? {
+        func end(within limit: Duration = hangLimit) -> Ending? {
             let deadline = ContinuousClock.now + limit
             while readMore(until: deadline) {}
             // Its output ends when it does, unless the deadline came first.
