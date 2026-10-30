@@ -14,35 +14,25 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  # swiftly (swift.org's toolchain installer) for the jobs that install Swift
-  # on macOS. The versioned .pkg is pinned and checked, like SwiftLint, so a
-  # new swiftly release cannot change CI unnoticed.
-  SWIFTLY_VERSION: "1.2.0"
-  SWIFTLY_SHA256: a1b48692b00ea6902957423473c87bee7c7f3e18c015a4a09317102f6820b987
-
+# Swift is swift.org's: installed by .github/actions/setup-swift on the
+# runners, or the image's in the Linux containers (the simulator jobs use
+# Xcode's). The longer shell steps are in .github/scripts.
 jobs:
   lint:
     name: Lint
     runs-on: macos-26
     env:
-      # swift-format comes with the toolchain, so it is pinned with it.
-      SWIFT_VERSION: "6.4"
       SWIFTLINT_VERSION: "0.65.1"
       SWIFTLINT_SHA256: c1e429b0599cf1b516f369a2d9ec04eaf0e436f3c12b637df8851fa52ff694d0
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - name: Install Swift ${{ env.SWIFT_VERSION }}
-        run: |
-          curl -fsSLo "$RUNNER_TEMP/swiftly.pkg" "https://download.swift.org/swiftly/darwin/swiftly-$SWIFTLY_VERSION.pkg"
-          echo "$SWIFTLY_SHA256  $RUNNER_TEMP/swiftly.pkg" | shasum -a 256 -c -
-          installer -pkg "$RUNNER_TEMP/swiftly.pkg" -target CurrentUserHomeDirectory
-          ~/.swiftly/bin/swiftly init --assume-yes --quiet-shell-followup --skip-install
-          . "$HOME/.swiftly/env.sh"
-          swiftly install --assume-yes --use "$SWIFT_VERSION"
-          echo "$HOME/.swiftly/bin" >> "$GITHUB_PATH"
+      # swift-format comes with the toolchain, so it is pinned with it.
+      - name: Set up Swift
+        uses: ./.github/actions/setup-swift
+        with:
+          swift-version: "6.4"
 
       - name: Install SwiftLint ${{ env.SWIFTLINT_VERSION }}
         run: |
@@ -69,27 +59,16 @@ jobs:
   macos:
     name: Test macOS
     runs-on: macos-26
-    env:
-      SWIFT_VERSION: "6.4"
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # The runner's default Xcode may ship an older Swift; install the exact
-      # toolchain with swiftly (swift.org's installer) so macOS and Linux
-      # build with the same compiler.
-      - name: Install Swift ${{ env.SWIFT_VERSION }}
-        run: |
-          curl -fsSLo "$RUNNER_TEMP/swiftly.pkg" "https://download.swift.org/swiftly/darwin/swiftly-$SWIFTLY_VERSION.pkg"
-          echo "$SWIFTLY_SHA256  $RUNNER_TEMP/swiftly.pkg" | shasum -a 256 -c -
-          installer -pkg "$RUNNER_TEMP/swiftly.pkg" -target CurrentUserHomeDirectory
-          ~/.swiftly/bin/swiftly init --assume-yes --quiet-shell-followup --skip-install
-          . "$HOME/.swiftly/env.sh"
-          swiftly install --assume-yes --use "$SWIFT_VERSION"
-          echo "$HOME/.swiftly/bin" >> "$GITHUB_PATH"
-
-      - name: Show Swift version
-        run: swift --version
+      # toolchain so macOS and Linux build with the same compiler.
+      - name: Set up Swift
+        uses: ./.github/actions/setup-swift
+        with:
+          swift-version: "6.4"
 
       - name: Resolve dependencies
         run: swift package resolve
@@ -138,8 +117,8 @@ jobs:
           xcodebuild -version
           swift --version
 
-      # Every test but the ones that launch a process (macOS and Linux only):
-      # the simulators can't run the fixture.
+      # Every test but the ones that launch a process (macOS, Linux and
+      # Android only): the simulators can't run the fixture.
       - name: Test on the ${{ matrix.platform }} Simulator
         run: |
           line="$(xcrun simctl list devices available | grep -m1 "${{ matrix.device }}")"
@@ -181,51 +160,21 @@ jobs:
         run: swift test --enable-code-coverage
 
       # The Linux signal code only builds here, so this is the only coverage
-      # of it. Printed to the log and the job summary, with no threshold.
-      #
-      # The test code is in `<name>.xctest` with the native build system
-      # (Swift 6.3). With swift-build (6.4) a test product is a thin
-      # `<name>-test-runner` launcher and a `<name>.so` beside it, and the
-      # code, so its coverage, is in the `.so`.
+      # of it.
       - name: Coverage
-        run: |
-          bin="$(swift build --show-bin-path)"
-          profdata="$(dirname "$(swift test --show-codecov-path)")/default.profdata"
-          objects=""
-          for xctest in "$bin"/*.xctest; do
-            if [ -f "$xctest" ]; then objects="$objects -object=$xctest"; fi
-          done
-          for runner in "$bin"/*-test-runner; do
-            if [ -f "$runner" ]; then objects="$objects -object=${runner%-test-runner}.so"; fi
-          done
-          if [ -z "$objects" ]; then
-            echo "No test binaries in $bin:"
-            ls -la "$bin"
-            exit 1
-          fi
-          report="$(llvm-cov report $objects -instr-profile="$profdata" -ignore-filename-regex='/(\.build|Tests)/')"
-          echo "$report"
-          printf '### Coverage: Linux %s, Swift %s\n\n```\n%s\n```\n' \
-            "${{ matrix.arch }}" "${{ matrix.swift }}" "$report" >> "$GITHUB_STEP_SUMMARY"
+        run: .github/scripts/coverage-report.sh "Linux ${{ matrix.arch }}, Swift ${{ matrix.swift }}"
 
   windows:
     name: Test Windows
     runs-on: windows-2025
-    env:
-      SWIFT_VERSION: "6.4.2"
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      # swift.org's Windows installer, through compnerd/gha-setup-swift.
-      - name: Install Swift ${{ env.SWIFT_VERSION }}
-        uses: compnerd/gha-setup-swift@9ff1ee4c44888c5817fc14d1b257ac8cabb4935f # v0.5.1
+      - name: Set up Swift
+        uses: ./.github/actions/setup-swift
         with:
-          swift-version: swift-${{ env.SWIFT_VERSION }}-release
-          swift-build: ${{ env.SWIFT_VERSION }}-RELEASE
-
-      - name: Show Swift version
-        run: swift --version
+          swift-version: "6.4.2"
 
       - name: Build
         run: swift build
@@ -274,22 +223,65 @@ jobs:
         run: timeout 60 "$(swift build --swift-sdk x86_64-swift-linux-musl --show-bin-path)/Example" job
 
       # `job` ends by itself; `requests` runs until a signal, so this is what
-      # runs Musl's signal handler and pipe. SIGTERM is sent once the process
-      # catches it (bit 15 of SigCgt): sent earlier, it would end the process
-      # by its default action.
+      # runs Musl's signal handler and pipe.
       - name: Stop the static Example with SIGTERM
         timeout-minutes: 2
         run: |
-          "$(swift build --swift-sdk x86_64-swift-linux-musl --show-bin-path)/Example" requests > requests.log &
-          pid=$!
-          trap 'cat requests.log' EXIT
-          caught() { awk '/^SigCgt:/ { print substr($2, 9) }' "/proc/$pid/status"; }
-          for _ in $(seq 100); do
-            [ $(( 0x$(caught) & 0x4000 )) -ne 0 ] && break
-            sleep 0.1
+          .github/scripts/stop-example-with-sigterm.sh \
+            "$(swift build --swift-sdk x86_64-swift-linux-musl --show-bin-path)/Example"
+
+  android:
+    name: Test Android (emulator)
+    runs-on: ubuntu-latest
+    env:
+      # A Swift SDK only works with the exact compiler release it was built
+      # for, so the toolchain and the SDK are pinned together.
+      SWIFT_VERSION: "6.4.2"
+      # "Swift SDK for Android" from https://www.swift.org/install/
+      ANDROID_SDK_URL: https://download.swift.org/swift-6.4.2-release/android-sdk/swift-6.4.2-RELEASE/swift-6.4.2-RELEASE_android.artifactbundle.tar.gz
+      ANDROID_SDK_SHA256: 4d6ad63ea74becd58e123ff58b1b48c3be5ec0db0dff0ea5abe37ac007dd3233
+      ANDROID_SDK_ID: swift-6.4.2-RELEASE_android
+      # The NDK release the SDK is made for; the runner image has it.
+      ANDROID_NDK_MAJOR: "30"
+      # The first API level with `posix_spawn`, which the tests use to
+      # launch the fixture.
+      ANDROID_API: "28"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up Swift
+        uses: ./.github/actions/setup-swift
+        with:
+          swift-version: ${{ env.SWIFT_VERSION }}
+
+      # The SDK's setup script links the NDK's headers and libraries in.
+      - name: Install the Swift SDK for Android
+        run: |
+          swift sdk install "$ANDROID_SDK_URL" --checksum "$ANDROID_SDK_SHA256" --swift-sdks-path "$RUNNER_TEMP/swift-sdks"
+          ndk="$(ls -d "$ANDROID_HOME/ndk/$ANDROID_NDK_MAJOR".* | tail -n 1)"
+          ANDROID_NDK_HOME="$ndk" "$RUNNER_TEMP/swift-sdks/$ANDROID_SDK_ID.artifactbundle/swift-android/scripts/setup-android-sdk.sh"
+
+      - name: Resolve dependencies
+        run: swift package resolve
+
+      # Every architecture the SDK has, tests included: armv7 is 32-bit, and
+      # Bionic lays out `sigaction` differently there. Only x86_64 runs, on
+      # the emulator below.
+      - name: Build
+        run: |
+          for arch in aarch64 armv7 x86_64; do
+            echo "== $arch"
+            swift build --build-tests --swift-sdks-path "$RUNNER_TEMP/swift-sdks" \
+              --swift-sdk "$ANDROID_SDK_ID" --triple "$arch-unknown-linux-android$ANDROID_API"
           done
-          kill -TERM "$pid"
-          status=0
-          wait "$pid" || status=$?
-          test "$status" -eq 0
-          grep -q '^outcome: SIGTERM' requests.log
+
+      - name: Start the Android emulator
+        timeout-minutes: 10
+        run: .github/scripts/android-start-emulator.sh "$ANDROID_API"
+
+      - name: Test on the Android emulator
+        timeout-minutes: 15
+        run: |
+          .github/scripts/android-test.sh "$RUNNER_TEMP/swift-sdks" "$ANDROID_SDK_ID" \
+            "x86_64-unknown-linux-android$ANDROID_API"

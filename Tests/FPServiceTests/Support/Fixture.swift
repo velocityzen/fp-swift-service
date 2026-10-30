@@ -1,12 +1,14 @@
-// macOS and Linux only: the simulators can't launch the fixture, and
-// tvOS and watchOS have no `posix_spawn`.
-#if os(macOS) || os(Linux)
+// macOS, Linux and Android only: the simulators can't launch the fixture,
+// and tvOS and watchOS have no `posix_spawn`.
+#if os(macOS) || os(Linux) || os(Android)
     #if canImport(Darwin)
         import Darwin
     #elseif canImport(Glibc)
         import Glibc
     #elseif canImport(Musl)
         import Musl
+    #elseif canImport(Android)
+        import Android
     #endif
     import Synchronization
 
@@ -67,29 +69,29 @@
             // Both ends close on exec; the child's standard output is a copy.
             for end in ends { _ = fcntl(end, F_SETFD, FD_CLOEXEC) }
 
-            #if canImport(Darwin)
-                var actions: posix_spawn_file_actions_t?
-                var attributes: posix_spawnattr_t?
-            #else
-                var actions = posix_spawn_file_actions_t()
-                var attributes = posix_spawnattr_t()
-            #endif
-            posix_spawn_file_actions_init(&actions)
-            defer { posix_spawn_file_actions_destroy(&actions) }
-            posix_spawn_file_actions_adddup2(&actions, ends[1], STDOUT_FILENO)
+            // Storage for `init` to fill: on Android it holds a pointer
+            // declared non-null, so it can't start out as a `nil` variable.
+            let actions = UnsafeMutablePointer<SpawnFileActions>.allocate(capacity: 1)
+            defer { actions.deallocate() }
+            let attributes = UnsafeMutablePointer<SpawnAttributes>.allocate(capacity: 1)
+            defer { attributes.deallocate() }
 
-            posix_spawnattr_init(&attributes)
-            defer { posix_spawnattr_destroy(&attributes) }
+            nullable(actions) { posix_spawn_file_actions_init($0) }
+            defer { posix_spawn_file_actions_destroy(actions) }
+            posix_spawn_file_actions_adddup2(actions, ends[1], STDOUT_FILENO)
+
+            nullable(attributes) { posix_spawnattr_init($0) }
+            defer { posix_spawnattr_destroy(attributes) }
             var none = sigset_t()
             sigemptyset(&none)
-            posix_spawnattr_setsigmask(&attributes, &none)
+            posix_spawnattr_setsigmask(attributes, &none)
             var all = sigset_t()
             sigfillset(&all)
             sigdelset(&all, SIGKILL)
             sigdelset(&all, SIGSTOP)
-            posix_spawnattr_setsigdefault(&attributes, &all)
+            posix_spawnattr_setsigdefault(attributes, &all)
             posix_spawnattr_setflags(
-                &attributes,
+                attributes,
                 Int16(POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF)
             )
 
@@ -98,7 +100,7 @@
             defer { argv.forEach { free($0) } }
             let environment: [UnsafeMutablePointer<CChar>?] = [nil]
             var pid: pid_t = 0
-            let spawned = posix_spawn(&pid, path, &actions, &attributes, argv, environment)
+            let spawned = posix_spawn(&pid, path, actions, attributes, argv, environment)
             close(ends[1])
             guard spawned == 0 else {
                 close(ends[0])
@@ -172,6 +174,39 @@
     /// Held while a fixture is spawned.
     private let launching = Mutex(())
 
+    // What `posix_spawn` takes its file actions and attributes in: a struct
+    // with glibc and musl, a pointer that `init` sets elsewhere (and on
+    // Darwin, one the headers let be `nil`).
+    #if canImport(Darwin)
+        private typealias SpawnFileActions = posix_spawn_file_actions_t?
+        private typealias SpawnAttributes = posix_spawnattr_t?
+    #else
+        private typealias SpawnFileActions = posix_spawn_file_actions_t
+        private typealias SpawnAttributes = posix_spawnattr_t
+    #endif
+
+    #if canImport(Android)
+        /// Calls `body` with `pointer`'s memory seen as `Optional`, which has
+        /// the same layout. On Android each `init` takes the pointer it sets
+        /// as nullable, and every other call takes it as non-null.
+        @discardableResult
+        private func nullable<T, R>(
+            _ pointer: UnsafeMutablePointer<T>,
+            _ body: (UnsafeMutablePointer<T?>) -> R
+        ) -> R {
+            pointer.withMemoryRebound(to: T?.self, capacity: 1, body)
+        }
+    #else
+        /// Calls `body` with `pointer`: only Android needs it seen as `Optional`.
+        @discardableResult
+        private func nullable<T, R>(
+            _ pointer: UnsafeMutablePointer<T>,
+            _ body: (UnsafeMutablePointer<T>) -> R
+        ) -> R {
+            body(pointer)
+        }
+    #endif
+
     /// The executable `name` built next to this test bundle: the nearest
     /// directory above this binary that has it.
     private func builtExecutable(named name: String) -> String? {
@@ -186,7 +221,8 @@
     }
 
     /// The path of the binary this code is in: the test bundle on Darwin, where
-    /// a runner loads it, and the test executable itself on Linux.
+    /// a runner loads it, and the test executable itself on Linux and
+    /// Android.
     private func currentBinary() -> String? {
         #if canImport(Darwin)
             var info = Dl_info()

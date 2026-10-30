@@ -4,6 +4,8 @@
     import Glibc
 #elseif canImport(Musl)
     import Musl
+#elseif canImport(Android)
+    import Android
 #elseif canImport(CRT)
     import CRT
 #endif
@@ -75,7 +77,7 @@ public func signalName(_ signal: Int32) -> String {
             (SIGINFO, "SIGINFO"), (SIGEMT, "SIGEMT"),
         ]
     #else
-        /// Signals only Linux has.
+        /// Signals only Linux (and so Android) has.
         private let platformSignalNames: [(signal: Int32, name: String)] = [
             (SIGPWR, "SIGPWR"), (SIGSTKFLT, "SIGSTKFLT"),
         ]

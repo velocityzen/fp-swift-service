@@ -93,4 +93,4 @@ Windows has no signals to send or catch. A console process gets console control 
 
 Once a close, logoff or shutdown event has been handled, Windows ends the process anyway, a few seconds later at most. So the event is held until no stream is subscribed to `SIGTERM` any more, which gives cleanup that time.
 
-The Darwin defaults are those of `signal(3)`. The Linux differences noted are from Linux's `signal(7)`. The Windows events are those of `SetConsoleCtrlHandler`.
+The Darwin defaults are those of `signal(3)`. The Linux differences noted are from Linux's `signal(7)`, and hold on Android too. The Windows events are those of `SetConsoleCtrlHandler`.

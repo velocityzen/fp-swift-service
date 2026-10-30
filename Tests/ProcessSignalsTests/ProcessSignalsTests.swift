@@ -4,6 +4,8 @@
     import Glibc
 #elseif canImport(Musl)
     import Musl
+#elseif canImport(Android)
+    import Android
 #elseif canImport(CRT)
     import CRT
 #endif
@@ -16,10 +18,11 @@ import Testing
 #endif
 
 /// These send real signals to the test process: `testSignal` and
-/// `otherSignal`, and SIGCHLD. On macOS and Linux those are SIGURG, SIGWINCH
-/// and SIGCHLD, whose default action is to ignore, so a failure can never
-/// kill the test run; on Windows, SIGBREAK and SIGINT (see `send(_:)`). They
-/// change process-wide dispositions, so they run one at a time.
+/// `otherSignal`, and SIGCHLD. On macOS, Linux and Android those are SIGURG,
+/// SIGWINCH and SIGCHLD, whose default action is to ignore, so a failure can
+/// never kill the test run; on Windows, SIGBREAK and SIGINT (see
+/// `send(_:)`). They change process-wide dispositions, so they run one at a
+/// time.
 @Suite("processSignals", .serialized, .timeLimit(.minutes(1)))
 struct ProcessSignalsTests {
     @Test("delivers each signal")
@@ -64,7 +67,9 @@ struct ProcessSignalsTests {
 
     @Test("signals that can't be subscribed to are left out")
     func cannotSubscribe() async throws {
-        let none = await processSignals([0, -1, 1234] + uncatchable)
+        // 32 is past Darwin's last signal, and on Linux and Android the first
+        // one the C library keeps for itself.
+        let none = await processSignals([0, -1, 32, 1234] + uncatchable)
         #expect(try await collect(1, from: none) == [])
 
         let stream = await processSignals([1234, testSignal] + uncatchable)
@@ -100,7 +105,7 @@ struct ProcessSignalsTests {
         #expect(disposition(testSignal) == original)
     }
 
-    #if os(macOS) || os(Linux)  // the others can't spawn a child
+    #if os(macOS) || os(Linux) || os(Android)  // the others can't spawn a child
         @Test("SIGCHLD is delivered, and the child can still be waited for")
         func childExited() async throws {
             let stream = await processSignals([SIGCHLD])
@@ -148,17 +153,23 @@ private func listen(_ name: String, _ report: AsyncStream<String>.Continuation) 
     for await _ in stream { report.yield("\(name) got") }
 }
 
-#if os(macOS) || os(Linux)
+#if os(macOS) || os(Linux) || os(Android)
     /// Starts a child process that exits at once; returns its pid.
     private func spawnExitingChild() -> pid_t? {
-        let arguments = ["/bin/sh", "-c", "exit 0"]
+        let arguments = [shell, "-c", "exit 0"]
         let argv: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) } + [nil]
         defer { argv.forEach { free($0) } }
         let environment: [UnsafeMutablePointer<CChar>?] = [nil]
         var pid: pid_t = 0
-        guard posix_spawn(&pid, "/bin/sh", nil, nil, argv, environment) == 0 else { return nil }
+        guard posix_spawn(&pid, shell, nil, nil, argv, environment) == 0 else { return nil }
         return pid
     }
+
+    #if os(Android)
+        private let shell = "/system/bin/sh"
+    #else
+        private let shell = "/bin/sh"
+    #endif
 #endif
 
 #if os(Windows)

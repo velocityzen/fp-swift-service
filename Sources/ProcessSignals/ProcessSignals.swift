@@ -4,10 +4,12 @@
     import Glibc
 #elseif canImport(Musl)
     import Musl
+#elseif canImport(Android)
+    import Android
 #elseif canImport(CRT)
     import CRT
 #else
-    #error("ProcessSignals supports Darwin, Glibc and Musl (Linux), and Windows only")
+    #error("ProcessSignals supports Darwin, Linux (Glibc and Musl), Android and Windows only")
 #endif
 import Synchronization
 
@@ -25,9 +27,9 @@ import Synchronization
 ///   merge: the kernel keeps only one pending instance of a standard signal
 ///   (Darwin's kqueue still counts every send).
 /// - A signal that can't be subscribed to is left out: a number this platform
-///   doesn't have (on Linux, also one the C library keeps for itself), or
-///   SIGKILL or SIGSTOP, which can't be caught. If no signal is left, or the
-///   list is empty, the stream is already finished.
+///   doesn't have (on Linux and Android, also one the C library keeps for
+///   itself), or SIGKILL or SIGSTOP, which can't be caught. If no signal is
+///   left, or the list is empty, the stream is already finished.
 /// - Returns once the signals are subscribed to, so a signal sent right after
 ///   this call is not missed. One sent during the call is never lost either:
 ///   it has its previous effect, or is delivered, or both.
@@ -45,16 +47,16 @@ import Synchronization
 ///   last of them ends.
 /// - Waiting costs no thread of its own: Dispatch delivers the signals through
 ///   the same machinery it uses for every other source.
-/// - If the signals can't be subscribed to at all (on Linux, when no pipe can
-///   be made), the stream is already finished and the dispositions are left
-///   alone; a later call tries again.
+/// - If the signals can't be subscribed to at all (on Linux and Android,
+///   when no pipe can be made), the stream is already finished and the
+///   dispositions are left alone; a later call tries again.
 ///
 /// On Darwin the handler does nothing, and the signals are read from kqueue
 /// through Dispatch signal sources. (Not `SIG_IGN`: a child process would
 /// inherit it across `exec`, and an ignored SIGCHLD is never sent at all.)
-/// On Linux the handler writes each signal to a pipe that a Dispatch read
-/// source drains; Dispatch signal sources are not used there, because
-/// libdispatch installs a handler of its own that it never removes.
+/// On Linux and Android the handler writes each signal to a pipe that a
+/// Dispatch read source drains; Dispatch signal sources are not used there,
+/// because libdispatch installs a handler of its own that it never removes.
 ///
 /// Windows has no signals to catch: Ctrl-C, Ctrl-Break, and the console
 /// closing, the user logging off or the system shutting down reach a console
@@ -96,13 +98,21 @@ package func registerSignals(_ signals: [Int32]) async -> Signals {
 #if !os(Windows)
     /// Whether `signal` can be subscribed to. `sigaction` is asked rather than
     /// a range checked: it rejects the numbers this platform doesn't have, and
-    /// on Linux the ones the C library keeps for itself. (Given one of those,
-    /// Darwin's Dispatch would end the process.) SIGKILL and SIGSTOP it
-    /// accepts for reading, but they can never be caught or ignored.
+    /// with glibc and musl the ones the C library keeps for itself. (Given one
+    /// of those, Darwin's Dispatch would end the process.) SIGKILL and SIGSTOP
+    /// it accepts for reading, but they can never be caught or ignored.
     func canRegisterSignal(_ signal: Int32) -> Bool {
         guard signal != SIGKILL, signal != SIGSTOP else {
             return false
         }
+        #if canImport(Android)
+            // Bionic's `sigaction` doesn't reject the real-time signals it
+            // keeps for itself (timers, debuggerd, profilers): the first
+            // ones, below SIGRTMIN.
+            guard !(__SIGRTMIN..<__libc_current_sigrtmin()).contains(signal) else {
+                return false
+            }
+        #endif
 
         var current = sigaction()
         return sigaction(signal, nil, &current) == 0

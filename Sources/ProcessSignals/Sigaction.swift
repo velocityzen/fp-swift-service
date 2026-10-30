@@ -6,20 +6,24 @@
         import Glibc
     #elseif canImport(Musl)
         import Musl
+    #elseif canImport(Android)
+        import Android
     #endif
 
     // Every place in the package that reads or sets a signal handler goes through
     // here, so the C libraries' different names for the field are spelled once.
 
     extension sigaction {
-        /// The signal handler: `SIG_DFL`, `SIG_IGN` or a function. Darwin, glibc
-        /// and musl each name the field differently.
+        /// The signal handler: `SIG_DFL`, `SIG_IGN` or a function. Darwin, glibc,
+        /// musl and Bionic (Android) each name the field differently.
         package var handler: (@convention(c) (Int32) -> Void)? {
             get {
                 #if canImport(Darwin)
                     return __sigaction_u.__sa_handler
                 #elseif canImport(Musl)
                     return __sa_handler.sa_handler
+                #elseif canImport(Android)
+                    return sa_handler
                 #else
                     return __sigaction_handler.sa_handler
                 #endif
@@ -29,6 +33,8 @@
                     __sigaction_u.__sa_handler = newValue
                 #elseif canImport(Musl)
                     __sa_handler.sa_handler = newValue
+                #elseif canImport(Android)
+                    sa_handler = newValue
                 #else
                     __sigaction_handler.sa_handler = newValue
                 #endif

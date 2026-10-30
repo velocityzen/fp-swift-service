@@ -4,6 +4,8 @@
     import Glibc
 #elseif canImport(Musl)
     import Musl
+#elseif canImport(Android)
+    import Android
 #elseif canImport(CRT)
     import CRT
 #endif
@@ -21,12 +23,12 @@ import ProcessSignals
 /// takes a third signal. Prints each event, and `disposing`, a line at a
 /// time for the test to read.
 ///
-/// On macOS and Linux, two more modes. With `stall`, a stdio stream is
-/// stuck writing to a pipe nobody reads, as when the process's output
+/// On macOS, Linux and Android, two more modes. With `stall`, a stdio stream
+/// is stuck writing to a pipe nobody reads, as when the process's output
 /// stalls: flushing every stream waits on it. With `nofile`, it instead runs
 /// a service with no file descriptor left, then another with them back, and
-/// prints how each ended: on Linux the signals need a pipe, made once per
-/// process, so this takes a process of its own.
+/// prints how each ended: on Linux and Android the signals need a pipe, made
+/// once per process, so this takes a process of its own.
 ///
 /// Usage: `ServiceFixture <signal number> [stall]`, or `ServiceFixture nofile`
 @main

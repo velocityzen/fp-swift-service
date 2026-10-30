@@ -1,13 +1,15 @@
-#if canImport(Glibc) || canImport(Musl)
+#if canImport(Glibc) || canImport(Musl) || canImport(Android)
     #if canImport(Glibc)
         import Glibc
     #elseif canImport(Musl)
         import Musl
+    #elseif canImport(Android)
+        import Android
     #endif
     import Dispatch
     import Synchronization
 
-    // Linux: a `sigaction` handler of our own writes each signal to a pipe,
+    // Linux and Android: a `sigaction` handler of our own writes each signal to a pipe,
     // and one Dispatch read source drains the pipe into every stream that
     // is subscribed to the signal.
     //

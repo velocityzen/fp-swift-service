@@ -1,12 +1,14 @@
-// macOS and Linux only: the simulators can't launch the fixture, and
-// tvOS and watchOS have no `posix_spawn`.
-#if os(macOS) || os(Linux)
+// macOS, Linux and Android only: the simulators can't launch the fixture,
+// and tvOS and watchOS have no `posix_spawn`.
+#if os(macOS) || os(Linux) || os(Android)
     #if canImport(Darwin)
         import Darwin
     #elseif canImport(Glibc)
         import Glibc
     #elseif canImport(Musl)
         import Musl
+    #elseif canImport(Android)
+        import Android
     #endif
     import FPService
     import Testing

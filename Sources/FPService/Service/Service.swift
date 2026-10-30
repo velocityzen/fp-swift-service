@@ -45,8 +45,8 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
     ///   - service: the composed bracket; acquire starts it, dispose stops it.
     ///   - shutdownSignals: signals subscribed to for the run; see the stages
     ///     above. If one can't be subscribed to — SIGKILL, SIGSTOP, a number the
-    ///     platform doesn't have, or on Linux any, when the process is out of
-    ///     file descriptors — the run fails with
+    ///     platform doesn't have, or on Linux and Android any, when the process
+    ///     is out of file descriptors — the run fails with
     ///     ``ServiceError/signalsUnavailable(_:)`` before acquire: without
     ///     it, the signal would end the process mid-run, skipping dispose.
     ///   - shutdownTimeout: how long the graceful stage may take before the

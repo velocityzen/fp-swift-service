@@ -13,7 +13,7 @@ for await signal in await processSignals([SIGTERM, SIGINT]) {
 ```
 
 - **Startup:** ``processSignals(_:)`` returns once every signal is subscribed to, so a signal sent right after the call is not missed. One sent during the call has its previous effect or is delivered; it is never lost.
-- **Left out:** a signal that can't be subscribed to is skipped: a number the platform doesn't have (on Linux, also one the C library keeps for itself), or `SIGKILL` and `SIGSTOP`, which can't be caught. If none is left, the stream is already finished.
+- **Left out:** a signal that can't be subscribed to is skipped: a number the platform doesn't have (on Linux and Android, also one the C library keeps for itself), or `SIGKILL` and `SIGSTOP`, which can't be caught. If none is left, the stream is already finished.
 - **Deliveries:** each delivery is one element. Signals sent in the same instant can merge: the kernel keeps only one pending instance of a standard signal (Darwin's kqueue still counts every send).
 - **While the stream lives:** a handler of its own catches the signals, so their default actions can't end the process. Like any handler, it can interrupt a blocking call on a thread that doesn't block the signal; with `SA_RESTART`, most calls resume.
 - **Child processes:** `exec` resets a caught signal to its default action, so a child started with `posix_spawn`, `fork` and `exec`, or `system()` is unaffected. That is why the signals are caught, never set to `SIG_IGN`, which survives `exec`. `SIGCHLD` can be subscribed to as well, and children can still be waited for.
