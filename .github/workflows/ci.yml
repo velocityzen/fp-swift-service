@@ -79,6 +79,14 @@ jobs:
       - name: Test
         run: swift test
 
+      # The concurrency pool with one thread, the narrowest it gets (the
+      # simulators can have one or two): anything that holds a pool thread
+      # while it waits hangs here every time, not now and then.
+      - name: Test with a one-thread concurrency pool
+        env:
+          LIBDISPATCH_COOPERATIVE_POOL_STRICT: "1"
+        run: swift test
+
       # macOS only. On Linux, a contended `Mutex` (Synchronization) is taken
       # in `_lockSlow`, which lives in the uninstrumented standard library,
       # so TSan misses that acquire and reports races on state the mutex

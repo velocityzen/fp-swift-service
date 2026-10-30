@@ -19,8 +19,9 @@
 /// }
 /// ```
 ///
-/// The handler runs once, synchronously, in the task that requests the
-/// shutdown. For a signal that is a task of its own, so a handler that blocks
+/// The handler runs once, synchronously, where the shutdown is requested.
+/// When the service requests it (a signal, or `serve` returning) that is a
+/// thread of its own, outside the concurrency pool, so a handler that blocks
 /// never keeps a later signal from cancelling the service or ending the
 /// process. Keep it short all the same: the service's call returns only once
 /// it has. If shutdown was already requested, it runs at once, before

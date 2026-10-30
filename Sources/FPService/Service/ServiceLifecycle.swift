@@ -1,3 +1,5 @@
+import Dispatch
+
 /// One ``Service`` run, driven by one loop.
 ///
 /// Everything that happens to the run — a signal, the bracket's progress,
@@ -40,9 +42,9 @@ struct ServiceLifecycle<Failure: Error>: Sendable {
     /// next to this one, and `shutdown` the one its `serve` was handed.
     ///
     /// The loop carries out each effect itself. Stage 1 starts the timeout
-    /// and requests the shutdown in a child of its own, so a handler that
-    /// blocks never holds up the loop; stage 2 cancels the bracket's task;
-    /// stage 3 ends the process.
+    /// and requests the shutdown on a thread of its own (see
+    /// ``requestOnItsOwnThread(_:)``), so a handler that blocks never holds up
+    /// the loop; stage 2 cancels the bracket's task; stage 3 ends the process.
     mutating func run(
         _ service: Task<Void, Never>,
         shutdown: Shutdown,
@@ -58,7 +60,7 @@ struct ServiceLifecycle<Failure: Error>: Sendable {
                             helpers.addTask { await cancel(after: timeout, inbox) }
                         }
                         helpers.addTask {
-                            shutdown.request()
+                            await requestOnItsOwnThread(shutdown)
                             message.reply?.resume()
                         }
                     case .cancel:
@@ -85,6 +87,20 @@ struct ServiceLifecycle<Failure: Error>: Sendable {
     func finishEvents() {
         if let event = state.lastEvent { events?.yield(event) }
         events?.finish()
+    }
+}
+
+/// Requests `shutdown` on a Dispatch thread, and waits for its handlers to
+/// return without holding a thread of the concurrency pool. A handler that
+/// blocks then blocks only that thread: the pool, however few threads it has
+/// (the simulators can have one or two), keeps running the loop, the later
+/// signals and the timeout.
+private func requestOnItsOwnThread(_ shutdown: Shutdown) async {
+    await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+        DispatchQueue(label: "FPService.shutdown").async {
+            shutdown.request()
+            done.resume()
+        }
     }
 }
 
