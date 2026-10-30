@@ -4,26 +4,30 @@
     import Glibc
 #elseif canImport(Musl)
     import Musl
+#elseif canImport(CRT)
+    import CRT
 #endif
 import ProcessSignals
 import ServiceTestSupport
 import Testing
 
-/// These send real signals to the test process. They use SIGWINCH, SIGURG
+#if os(Windows)
+    import WinSDK
+#endif
+
+/// These send real signals to the test process: `testSignal` and
+/// `otherSignal`, and SIGCHLD. On macOS and Linux those are SIGURG, SIGWINCH
 /// and SIGCHLD, whose default action is to ignore, so a failure can never
-/// kill the test run. They change process-wide dispositions, so they run one
-/// at a time.
-///
-/// Signals are sent with `kill(getpid(), …)`, to the whole process, like a
-/// real `kill` or Ctrl-C. (`raise` targets only the calling thread.)
+/// kill the test run; on Windows, SIGBREAK and SIGINT (see `send(_:)`). They
+/// change process-wide dispositions, so they run one at a time.
 @Suite("processSignals", .serialized, .timeLimit(.minutes(1)))
 struct ProcessSignalsTests {
     @Test("delivers each signal")
     func delivers() async throws {
-        let stream = await processSignals([SIGWINCH, SIGURG])
-        send(SIGWINCH)
-        send(SIGURG)
-        #expect(try await collect(2, from: stream).sorted() == [SIGWINCH, SIGURG].sorted())
+        let stream = await processSignals([otherSignal, testSignal])
+        send(otherSignal)
+        send(testSignal)
+        #expect(try await collect(2, from: stream).sorted() == [otherSignal, testSignal].sorted())
     }
 
     #if canImport(Darwin)
@@ -43,13 +47,13 @@ struct ProcessSignalsTests {
 
     @Test("a signal listed twice is delivered once per send")
     func duplicates() async throws {
-        let stream = await processSignals([SIGURG, SIGURG])
+        let stream = await processSignals([testSignal, testSignal])
         var signals = stream.makeAsyncIterator()
-        send(SIGURG)
-        #expect(await signals.next() == SIGURG)
-        send(SIGWINCH)  // not subscribed to: default action (ignore), not delivered
-        send(SIGURG)
-        #expect(await signals.next() == SIGURG)
+        send(testSignal)
+        #expect(await signals.next() == testSignal)
+        send(otherSignal)  // not subscribed to: not delivered
+        send(testSignal)
+        #expect(await signals.next() == testSignal)
     }
 
     @Test("an empty list gives a finished stream")
@@ -60,25 +64,25 @@ struct ProcessSignalsTests {
 
     @Test("signals that can't be subscribed to are left out")
     func cannotSubscribe() async throws {
-        let none = await processSignals([0, -1, 1234, SIGKILL, SIGSTOP])
+        let none = await processSignals([0, -1, 1234] + uncatchable)
         #expect(try await collect(1, from: none) == [])
 
-        let stream = await processSignals([1234, SIGURG, SIGKILL])
-        send(SIGURG)
-        #expect(try await collect(1, from: stream) == [SIGURG])
+        let stream = await processSignals([1234, testSignal] + uncatchable)
+        send(testSignal)
+        #expect(try await collect(1, from: stream) == [testSignal])
     }
 
     @Test("ending the stream restores the disposition")
     func restores() async throws {
-        let original = disposition(SIGURG)
+        let original = disposition(testSignal)
         // The consumer reports `installed` through a stream: its continuation
         // is Sendable, so the child task captures nothing non-copyable.
         let (installed, report) = AsyncStream<Void>.makeStream()
         let during = try await withDeadline {
             await withTaskGroup(of: UInt?.self) { group in
                 group.addTask {
-                    let stream = await processSignals([SIGURG])
-                    let during = disposition(SIGURG)
+                    let stream = await processSignals([testSignal])
+                    let during = disposition(testSignal)
                     report.yield()
                     for await _ in stream {}  // ends only when cancelled
                     return during
@@ -90,23 +94,27 @@ struct ProcessSignalsTests {
             }
         }
         #expect(during != original)  // subscribed to while the stream ran
-        #expect(during != bits(SIG_IGN))  // caught, so `exec` resets it in a child
-        #expect(disposition(SIGURG) == original)
+        #if !os(Windows)
+            #expect(during != bits(SIG_IGN))  // caught, so `exec` resets it in a child
+        #endif
+        #expect(disposition(testSignal) == original)
     }
 
-    @Test("SIGCHLD is delivered, and the child can still be waited for")
-    func childExited() async throws {
-        let stream = await processSignals([SIGCHLD])
-        let child = try #require(spawnExitingChild())
-        // Another child of this process may end first; any SIGCHLD will do.
-        #expect(try await collect(1, from: stream) == [SIGCHLD])
-        var status: Int32 = 0
-        #expect(waitpid(child, &status, 0) == child)  // not reaped behind our back
-    }
+    #if os(macOS) || os(Linux)  // the others can't spawn a child
+        @Test("SIGCHLD is delivered, and the child can still be waited for")
+        func childExited() async throws {
+            let stream = await processSignals([SIGCHLD])
+            let child = try #require(spawnExitingChild())
+            // Another child of this process may end first; any SIGCHLD will do.
+            #expect(try await collect(1, from: stream) == [SIGCHLD])
+            var status: Int32 = 0
+            #expect(waitpid(child, &status, 0) == child)  // not reaped behind our back
+        }
+    #endif
 
     @Test("streams can share a signal: each gets it, and the last to end restores it")
     func shared() async throws {
-        let original = disposition(SIGURG)
+        let original = disposition(testSignal)
         let (reports, report) = AsyncStream<String>.makeStream()
         try await withDeadline {
             var reports = reports.makeAsyncIterator()
@@ -115,45 +123,69 @@ struct ProcessSignalsTests {
             let second = Task { await listen("second", report) }
             #expect(await reports.next() == "second ready")
 
-            send(SIGURG)
+            send(testSignal)
             let both = [await reports.next(), await reports.next()].compactMap { $0 }
             #expect(both.sorted() == ["first got", "second got"])
 
             first.cancel()
             await first.value
-            #expect(disposition(SIGURG) != original)  // the second still holds it
-            send(SIGURG)
+            #expect(disposition(testSignal) != original)  // the second still holds it
+            send(testSignal)
             #expect(await reports.next() == "second got")
 
             second.cancel()
             await second.value
         }
-        #expect(disposition(SIGURG) == original)
+        #expect(disposition(testSignal) == original)
     }
 }
 
-/// Subscribes to SIGURG and reports `"<name> ready"`, then `"<name> got"` for
-/// each delivery, until cancelled.
+/// Subscribes to `testSignal` and reports `"<name> ready"`, then
+/// `"<name> got"` for each delivery, until cancelled.
 private func listen(_ name: String, _ report: AsyncStream<String>.Continuation) async {
-    let stream = await processSignals([SIGURG])
+    let stream = await processSignals([testSignal])
     report.yield("\(name) ready")
     for await _ in stream { report.yield("\(name) got") }
 }
 
-/// Starts a child process that exits at once; returns its pid.
-private func spawnExitingChild() -> pid_t? {
-    let arguments = ["/bin/sh", "-c", "exit 0"]
-    let argv: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) } + [nil]
-    defer { argv.forEach { free($0) } }
-    let environment: [UnsafeMutablePointer<CChar>?] = [nil]
-    var pid: pid_t = 0
-    guard posix_spawn(&pid, "/bin/sh", nil, nil, argv, environment) == 0 else { return nil }
-    return pid
-}
+#if os(macOS) || os(Linux)
+    /// Starts a child process that exits at once; returns its pid.
+    private func spawnExitingChild() -> pid_t? {
+        let arguments = ["/bin/sh", "-c", "exit 0"]
+        let argv: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) } + [nil]
+        defer { argv.forEach { free($0) } }
+        let environment: [UnsafeMutablePointer<CChar>?] = [nil]
+        var pid: pid_t = 0
+        guard posix_spawn(&pid, "/bin/sh", nil, nil, argv, environment) == 0 else { return nil }
+        return pid
+    }
+#endif
 
-/// Sends `signal` to this process.
+#if os(Windows)
+    /// The signals these tests send.
+    let testSignal = SIGBREAK
+    let otherSignal = SIGINT
+    /// Signals of the C library that no console event is delivered as.
+    let uncatchable = [SIGSEGV, SIGABRT]
+#else
+    /// The signals these tests send: their default action is to ignore.
+    let testSignal = SIGURG
+    let otherSignal = SIGWINCH
+    /// Signals that can never be caught.
+    let uncatchable = [SIGKILL, SIGSTOP]
+#endif
+
+/// Sends `signal` to this process. With `kill(getpid(), …)`, to the whole
+/// process, like a real `kill` or Ctrl-C (`raise` targets only the calling
+/// thread). Windows can't send a console event to one process alone, it
+/// reaches every process on the console, so there the event `signal` is
+/// delivered as goes to the handler routine directly.
 func send(_ signal: Int32) {
-    kill(getpid(), signal)
+    #if os(Windows)
+        _ = receiveConsoleEvent(UInt32(signal == SIGBREAK ? CTRL_BREAK_EVENT : CTRL_C_EVENT))
+    #else
+        kill(getpid(), signal)
+    #endif
 }
 
 /// The first `count` elements (fewer if the stream ends), or a failure
@@ -190,9 +222,13 @@ struct SignalNameTests {
     func names() {
         #expect(signalName(SIGTERM) == "SIGTERM")
         #expect(signalName(SIGINT) == "SIGINT")
-        #expect(signalName(SIGHUP) == "SIGHUP")
-        #expect(signalName(SIGUSR1) == "SIGUSR1")
-        #expect(signalName(SIGWINCH) == "SIGWINCH")
+        #if os(Windows)
+            #expect(signalName(SIGBREAK) == "SIGBREAK")
+        #else
+            #expect(signalName(SIGHUP) == "SIGHUP")
+            #expect(signalName(SIGUSR1) == "SIGUSR1")
+            #expect(signalName(SIGWINCH) == "SIGWINCH")
+        #endif
     }
 
     @Test("falls back to the number for an unknown signal")

@@ -1,6 +1,6 @@
 # ``ProcessSignals``
 
-Process signals as an `AsyncStream`, delivered through Dispatch. No package dependencies.
+Process signals as an `AsyncStream`, delivered through Dispatch (on Windows, console events). No package dependencies.
 
 ## Overview
 
@@ -21,6 +21,7 @@ for await signal in await processSignals([SIGTERM, SIGINT]) {
 - **Sharing:** several streams can subscribe to the same signal at once, and each gets every delivery.
 - **No extra thread:** Dispatch delivers signals without a thread of its own.
 - **Names:** ``signalName(_:)`` gives a signal's conventional name, such as `"SIGTERM"`, or `"signal N"` for an unknown number, matched against the platform's own constants.
+- **Windows:** there are no signals. Ctrl-C, Ctrl-Break, and the console closing, logoff or shutdown arrive as console control events, delivered as `SIGINT`, `SIGBREAK` and `SIGTERM`, the only signals that can be subscribed to there, so `[SIGINT, SIGTERM]` works everywhere. Windows ends the process once a close, logoff or shutdown event is handled, so the handler holds it until no stream is subscribed to `SIGTERM`: the run's dispose gets the time Windows allows. The handler routine runs on a thread Windows starts for each event.
 
 Which signals to subscribe to, and which to leave alone, is in <doc:SignalReference>. `FPService`'s `Service` uses this library for its `shutdownSignals`.
 

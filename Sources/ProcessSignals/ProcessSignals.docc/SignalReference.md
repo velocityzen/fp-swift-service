@@ -79,4 +79,18 @@ The kernel sends these to the thread that caused the fault, when it happens. The
 
 Because their default action terminates the process, subscribe to them before anyone sends them.
 
-The Darwin defaults are those of `signal(3)`. The Linux differences noted are from Linux's `signal(7)`.
+### Windows
+
+Windows has no signals to send or catch. A console process gets console control events instead, which ``processSignals(_:)`` delivers as signals; nothing else can be subscribed to there.
+
+| Event | Sent by | Delivered as | Default |
+|---|---|---|---|
+| `CTRL_C_EVENT` | Ctrl-C in a console | `SIGINT` | the process ends |
+| `CTRL_BREAK_EVENT` | Ctrl-Break; `GenerateConsoleCtrlEvent` to a process group | `SIGBREAK` | the process ends |
+| `CTRL_CLOSE_EVENT` | the console window closing | `SIGTERM` | the process ends |
+| `CTRL_LOGOFF_EVENT` | the user logging off | `SIGTERM` | the process ends |
+| `CTRL_SHUTDOWN_EVENT` | the system shutting down; a Windows container stopping | `SIGTERM` | the process ends |
+
+Once a close, logoff or shutdown event has been handled, Windows ends the process anyway, a few seconds later at most. So the event is held until no stream is subscribed to `SIGTERM` any more, which gives cleanup that time.
+
+The Darwin defaults are those of `signal(3)`. The Linux differences noted are from Linux's `signal(7)`. The Windows events are those of `SetConsoleCtrlHandler`.

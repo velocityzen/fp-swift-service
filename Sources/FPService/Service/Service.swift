@@ -27,7 +27,8 @@ import ProcessSignals
 ///    the calling task: the service is cancelled; dispose still runs;
 /// 3. **kill** — a signal during stage 2: the signal's default action is
 ///    restored and the signal re-sent, so the process ends (with exit status
-///    128 + the signal, if that action would leave it running).
+///    128 + the signal, if that action would leave it running). On Windows
+///    it exits with `STATUS_CONTROL_C_EXIT`, as Ctrl-C ends a process.
 ///
 /// The value is `~Copyable` and the call consumes it, so it runs exactly
 /// once; the brackets inside stay reusable.

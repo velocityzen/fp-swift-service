@@ -1,4 +1,4 @@
-#if !canImport(Darwin)
+#if os(Linux)
     import Testing
 
     /// Linux only: there the signals reach their streams through a pipe,

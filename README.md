@@ -21,6 +21,8 @@ dependencies: [
 
 Then add `FPService` to your target's dependencies. `ProcessSignals` is a separate product, if you only need the signal stream.
 
+It needs Swift 6.3 or later, and runs on macOS, iOS, tvOS, watchOS and visionOS 26 or later, Linux and Windows.
+
 Documentation: [FPService](https://swiftpackageindex.com/velocityzen/fp-swift-service/documentation/fpservice), [ProcessSignals](https://swiftpackageindex.com/velocityzen/fp-swift-service/documentation/processsignals).
 
 ## Quick start
@@ -248,7 +250,7 @@ Dispose runs after the body returns, so a resource drains and closes in its own 
 |---|---|---|
 | 1. graceful | a signal, or the body returning | `shutdown` is requested; the `shutdownTimeout` clock starts |
 | 2. cancel | a signal during stage 1, the timeout passing, or cancelling the calling task | the service is cancelled; dispose still runs |
-| 3. kill | a signal during stage 2 | the signal's default action is restored and the signal re-sent; the process ends (with exit status 128 + the signal, if that action would leave it running) |
+| 3. kill | a signal during stage 2 | the signal's default action is restored and the signal re-sent; the process ends (with exit status 128 + the signal, if that action would leave it running). On Windows it exits with `STATUS_CONTROL_C_EXIT`, as Ctrl-C ends a process |
 
 Each signal from `shutdownSignals` moves the stop one stage forward. The signals are subscribed to before acquire and unsubscribed from after dispose, so they can never kill the process mid-cleanup by accident.
 
@@ -317,7 +319,7 @@ Failures arrive as `.failure`, each once, where it happens: `.signalsUnavailable
 
 ## ProcessSignals
 
-A separate product with no package dependencies: process signals as an `AsyncStream`, delivered through Dispatch. `Service` uses it; you can use it on its own.
+A separate product with no package dependencies: process signals as an `AsyncStream`, delivered through Dispatch (on Windows, console events; see below). `Service` uses it; you can use it on its own.
 
 ```swift
 import ProcessSignals
@@ -336,4 +338,5 @@ for await signal in await processSignals([SIGTERM, SIGINT]) {
 - **Sharing:** several streams can subscribe to the same signal at once, and each gets every delivery.
 - **No extra thread:** Dispatch delivers signals without a thread of its own.
 - **Names:** `signalName(_:)` gives a signal's conventional name, such as `"SIGTERM"`, or `"signal N"` for an unknown number, matched against the platform's own constants.
+- **Windows:** there are no signals. Ctrl-C, Ctrl-Break, and the console closing, logoff or shutdown arrive as console control events, delivered as `SIGINT`, `SIGBREAK` and `SIGTERM`, the only signals that can be subscribed to there, so `[SIGINT, SIGTERM]` works everywhere. Windows ends the process once a close, logoff or shutdown event is handled, so the handler holds it until no stream is subscribed to `SIGTERM`: the run's dispose gets the time Windows allows. The handler routine runs on a thread Windows starts for each event.
 - **Reference:** the [Signal Reference](https://swiftpackageindex.com/velocityzen/fp-swift-service/documentation/processsignals/signalreference) explains what each signal means, its default action, and which ones to subscribe to.

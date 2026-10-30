@@ -4,6 +4,8 @@
     import Glibc
 #elseif canImport(Musl)
     import Musl
+#elseif canImport(CRT)
+    import CRT
 #endif
 import ArgumentParser
 import FPService

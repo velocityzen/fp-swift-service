@@ -4,6 +4,8 @@
     import Glibc
 #elseif canImport(Musl)
     import Musl
+#elseif canImport(CRT)
+    import CRT
 #endif
 @testable import FPService
 import Testing
@@ -47,7 +49,7 @@ struct StepTests {
     func lastEvent() {
         #expect(Lifecycle.State().lastEvent.map(describe) == "stopped")
         #expect(Lifecycle.State(startFailure: .boom("start")).lastEvent == nil)
-        #expect(Lifecycle.State(unavailableSignals: [SIGKILL]).lastEvent == nil)
+        #expect(Lifecycle.State(unavailableSignals: [1234]).lastEvent == nil)
     }
 }
 
@@ -172,8 +174,8 @@ private let steps: [StepRow] = [
     StepRow(
         "unavailable shutdown signals are a failure",
         running,
-        .signalsUnavailable([SIGKILL]),
-        events: ["failed: signals unavailable [9]"],
+        .signalsUnavailable([1234]),
+        events: ["failed: signals unavailable [1234]"],
         effect: .none,
         stage: .running
     ),
@@ -202,8 +204,8 @@ private let results: [ResultRow] = [
     ),
     ResultRow(
         "unavailable signals: nothing ran",
-        Lifecycle.State(unavailableSignals: [SIGKILL]),
-        .failure(.signalsUnavailable([SIGKILL]))
+        Lifecycle.State(unavailableSignals: [1234]),
+        .failure(.signalsUnavailable([1234]))
     ),
     ResultRow(
         "a start failure comes before a timeout",

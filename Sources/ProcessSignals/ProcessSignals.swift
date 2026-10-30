@@ -4,8 +4,10 @@
     import Glibc
 #elseif canImport(Musl)
     import Musl
+#elseif canImport(CRT)
+    import CRT
 #else
-    #error("ProcessSignals supports Darwin, Glibc (Linux) and Musl (static Linux) only")
+    #error("ProcessSignals supports Darwin, Glibc and Musl (Linux), and Windows only")
 #endif
 import Synchronization
 
@@ -53,6 +55,13 @@ import Synchronization
 /// On Linux the handler writes each signal to a pipe that a Dispatch read
 /// source drains; Dispatch signal sources are not used there, because
 /// libdispatch installs a handler of its own that it never removes.
+///
+/// Windows has no signals to catch: Ctrl-C, Ctrl-Break, and the console
+/// closing, the user logging off or the system shutting down reach a console
+/// process as control events. They are delivered as SIGINT, SIGBREAK and
+/// SIGTERM, the only signals that can be subscribed to there. Windows ends
+/// the process once a close, logoff or shutdown event has been handled, so
+/// its handler returns only once no stream is subscribed to SIGTERM any more.
 public func processSignals(_ signals: [Int32]) async -> AsyncStream<Int32> {
     await registerSignals(signals).stream
 }
@@ -84,19 +93,21 @@ package func registerSignals(_ signals: [Int32]) async -> Signals {
     return (stream, subscribed, requested.filter { !subscribed.contains($0) })
 }
 
-/// Whether `signal` can be subscribed to. `sigaction` is asked rather than a
-/// range checked: it rejects the numbers this platform doesn't have, and on
-/// Linux the ones the C library keeps for itself. (Given one of those,
-/// Darwin's Dispatch would end the process.) SIGKILL and SIGSTOP it accepts
-/// for reading, but they can never be caught or ignored.
-func canRegisterSignal(_ signal: Int32) -> Bool {
-    guard signal != SIGKILL, signal != SIGSTOP else {
-        return false
-    }
+#if !os(Windows)
+    /// Whether `signal` can be subscribed to. `sigaction` is asked rather than
+    /// a range checked: it rejects the numbers this platform doesn't have, and
+    /// on Linux the ones the C library keeps for itself. (Given one of those,
+    /// Darwin's Dispatch would end the process.) SIGKILL and SIGSTOP it
+    /// accepts for reading, but they can never be caught or ignored.
+    func canRegisterSignal(_ signal: Int32) -> Bool {
+        guard signal != SIGKILL, signal != SIGSTOP else {
+            return false
+        }
 
-    var current = sigaction()
-    return sigaction(signal, nil, &current) == 0
-}
+        var current = sigaction()
+        return sigaction(signal, nil, &current) == 0
+    }
+#endif
 
 /// How many streams are subscribed to a signal, and its disposition from
 /// before the first of them.

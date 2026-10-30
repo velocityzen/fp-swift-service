@@ -4,6 +4,8 @@
     import Glibc
 #elseif canImport(Musl)
     import Musl
+#elseif canImport(CRT)
+    import CRT
 #endif
 @testable import FPService
 import Testing
@@ -80,7 +82,7 @@ struct DescriptionTests {
         let serve = TestError.boom("serve")
         let stop = TestError.boom("stop")
         let cases: [(Error, ServicePhase, TestError?)] = [
-            (.signalsUnavailable([SIGKILL]), .start, nil),
+            (.signalsUnavailable([1234]), .start, nil),
             (.startFailed(serve), .start, serve),
             (.serveFailed(serve), .serve, serve),
             (.stopFailed(stop), .stop, stop),
@@ -101,8 +103,8 @@ struct DescriptionTests {
         typealias Error = ServiceError<TestError>
         let lines: [(Error, String)] = [
             (
-                .signalsUnavailable([SIGKILL, 1234]),
-                "Service could not subscribe to SIGKILL, signal 1234, so it did not start."
+                .signalsUnavailable([SIGINT, 1234]),
+                "Service could not subscribe to SIGINT, signal 1234, so it did not start."
             ),
             (.startFailed(.boom("a")), #"Service failed to start: boom("a")"#),
             (.serveFailed(.boom("a")), #"Service failed while serving: boom("a")"#),

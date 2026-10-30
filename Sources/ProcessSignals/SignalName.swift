@@ -4,6 +4,8 @@
     import Glibc
 #elseif canImport(Musl)
     import Musl
+#elseif canImport(CRT)
+    import CRT
 #endif
 
 /// The conventional name of a signal, e.g. `"SIGTERM"`; `"signal N"` for a
@@ -21,48 +23,61 @@ public func signalName(_ signal: Int32) -> String {
     signalNames.first { $0.signal == signal }?.name ?? "signal \(signal)"
 }
 
-/// Every signal ``signalName(_:)`` knows, against this platform's constants.
-private let signalNames: [(signal: Int32, name: String)] =
-    [
-        (SIGHUP, "SIGHUP"),
+#if os(Windows)
+    /// Every signal ``signalName(_:)`` knows: the ones Windows's C library has.
+    private let signalNames: [(signal: Int32, name: String)] = [
         (SIGINT, "SIGINT"),
-        (SIGQUIT, "SIGQUIT"),
         (SIGILL, "SIGILL"),
-        (SIGTRAP, "SIGTRAP"),
-        (SIGABRT, "SIGABRT"),
         (SIGFPE, "SIGFPE"),
-        (SIGKILL, "SIGKILL"),
-        (SIGBUS, "SIGBUS"),
         (SIGSEGV, "SIGSEGV"),
-        (SIGSYS, "SIGSYS"),
-        (SIGPIPE, "SIGPIPE"),
-        (SIGALRM, "SIGALRM"),
         (SIGTERM, "SIGTERM"),
-        (SIGURG, "SIGURG"),
-        (SIGSTOP, "SIGSTOP"),
-        (SIGTSTP, "SIGTSTP"),
-        (SIGCONT, "SIGCONT"),
-        (SIGCHLD, "SIGCHLD"),
-        (SIGTTIN, "SIGTTIN"),
-        (SIGTTOU, "SIGTTOU"),
-        (SIGIO, "SIGIO"),
-        (SIGXCPU, "SIGXCPU"),
-        (SIGXFSZ, "SIGXFSZ"),
-        (SIGVTALRM, "SIGVTALRM"),
-        (SIGPROF, "SIGPROF"),
-        (SIGWINCH, "SIGWINCH"),
-        (SIGUSR1, "SIGUSR1"),
-        (SIGUSR2, "SIGUSR2"),
-    ] + platformSignalNames
-
-#if canImport(Darwin)
-    /// Signals only Darwin has.
-    private let platformSignalNames: [(signal: Int32, name: String)] = [
-        (SIGINFO, "SIGINFO"), (SIGEMT, "SIGEMT"),
+        (SIGBREAK, "SIGBREAK"),
+        (SIGABRT, "SIGABRT"),
     ]
 #else
-    /// Signals only Linux has.
-    private let platformSignalNames: [(signal: Int32, name: String)] = [
-        (SIGPWR, "SIGPWR"), (SIGSTKFLT, "SIGSTKFLT"),
-    ]
+    /// Every signal ``signalName(_:)`` knows, against this platform's constants.
+    private let signalNames: [(signal: Int32, name: String)] =
+        [
+            (SIGHUP, "SIGHUP"),
+            (SIGINT, "SIGINT"),
+            (SIGQUIT, "SIGQUIT"),
+            (SIGILL, "SIGILL"),
+            (SIGTRAP, "SIGTRAP"),
+            (SIGABRT, "SIGABRT"),
+            (SIGFPE, "SIGFPE"),
+            (SIGKILL, "SIGKILL"),
+            (SIGBUS, "SIGBUS"),
+            (SIGSEGV, "SIGSEGV"),
+            (SIGSYS, "SIGSYS"),
+            (SIGPIPE, "SIGPIPE"),
+            (SIGALRM, "SIGALRM"),
+            (SIGTERM, "SIGTERM"),
+            (SIGURG, "SIGURG"),
+            (SIGSTOP, "SIGSTOP"),
+            (SIGTSTP, "SIGTSTP"),
+            (SIGCONT, "SIGCONT"),
+            (SIGCHLD, "SIGCHLD"),
+            (SIGTTIN, "SIGTTIN"),
+            (SIGTTOU, "SIGTTOU"),
+            (SIGIO, "SIGIO"),
+            (SIGXCPU, "SIGXCPU"),
+            (SIGXFSZ, "SIGXFSZ"),
+            (SIGVTALRM, "SIGVTALRM"),
+            (SIGPROF, "SIGPROF"),
+            (SIGWINCH, "SIGWINCH"),
+            (SIGUSR1, "SIGUSR1"),
+            (SIGUSR2, "SIGUSR2"),
+        ] + platformSignalNames
+
+    #if canImport(Darwin)
+        /// Signals only Darwin has.
+        private let platformSignalNames: [(signal: Int32, name: String)] = [
+            (SIGINFO, "SIGINFO"), (SIGEMT, "SIGEMT"),
+        ]
+    #else
+        /// Signals only Linux has.
+        private let platformSignalNames: [(signal: Int32, name: String)] = [
+            (SIGPWR, "SIGPWR"), (SIGSTKFLT, "SIGSTKFLT"),
+        ]
+    #endif
 #endif

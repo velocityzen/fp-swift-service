@@ -108,19 +108,27 @@ jobs:
         run: swift test --sanitize=thread
 
   apple:
-    name: Build ${{ matrix.platform }}
+    name: Test ${{ matrix.platform }} Simulator
     runs-on: macos-26
     strategy:
       fail-fast: false
       matrix:
-        # The platforms Package.swift declares besides macOS.
-        platform: [iOS, tvOS, watchOS, visionOS]
+        # The platforms Package.swift declares besides macOS, each on the
+        # first simulator of its kind the image has.
+        include:
+          - platform: iOS
+            device: iPhone
+          - platform: tvOS
+            device: Apple TV
+          - platform: watchOS
+            device: Apple Watch
+          - platform: visionOS
+            device: Apple Vision
     env:
       # swift-tools-version 6.3 needs Xcode 26.4 or later; Xcode 26.6 ships
       # Swift 6.3.3. Selected explicitly so a change of the image's default
       # Xcode cannot change the compiler or SDKs.
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
-      PLATFORM: ${{ matrix.platform }}
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -130,13 +138,14 @@ jobs:
           xcodebuild -version
           swift --version
 
-      # Only the library products: Example and ServiceFixture are command-line
-      # tools for macOS and Linux.
-      - name: Build FPService and ProcessSignals
+      # Every test but the ones that launch a process (macOS and Linux only):
+      # the simulators can't run the fixture.
+      - name: Test on the ${{ matrix.platform }} Simulator
         run: |
-          for scheme in FPService ProcessSignals; do
-            xcodebuild build -scheme "$scheme" -destination "generic/platform=$PLATFORM"
-          done
+          line="$(xcrun simctl list devices available | grep -m1 "${{ matrix.device }}")"
+          udid="$(echo "$line" | grep -oE '[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}')"
+          echo "Simulator: $line"
+          xcodebuild test -quiet -scheme fp-swift-service-Package -destination "id=$udid,arch=arm64"
 
   linux:
     name: Test Linux ${{ matrix.arch }} (Swift ${{ matrix.swift }})
@@ -198,6 +207,34 @@ jobs:
           echo "$report"
           printf '### Coverage: Linux %s, Swift %s\n\n```\n%s\n```\n' \
             "${{ matrix.arch }}" "${{ matrix.swift }}" "$report" >> "$GITHUB_STEP_SUMMARY"
+
+  windows:
+    name: Test Windows
+    runs-on: windows-2025
+    env:
+      SWIFT_VERSION: "6.4.2"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # swift.org's Windows installer, through compnerd/gha-setup-swift.
+      - name: Install Swift ${{ env.SWIFT_VERSION }}
+        uses: compnerd/gha-setup-swift@9ff1ee4c44888c5817fc14d1b257ac8cabb4935f # v0.5.1
+        with:
+          swift-version: swift-${{ env.SWIFT_VERSION }}-release
+          swift-build: ${{ env.SWIFT_VERSION }}-RELEASE
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Build
+        run: swift build
+
+      # Console events reach the process through the handler routine in the
+      # tests, except Ctrl-Break, sent for real to a fixture process. That
+      # test is skipped if the runner gives the job no console.
+      - name: Test
+        run: swift test
 
   musl:
     name: Build static Linux (Musl)

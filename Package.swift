@@ -56,6 +56,7 @@ let package = Package(
             name: "FPServiceTests",
             dependencies: [
                 "FPService",
+                "ProcessSignals",
                 "ServiceTestSupport",
                 .product(name: "FPBracket", package: "fp-swift-bracket"),
             ]
