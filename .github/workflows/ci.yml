@@ -281,8 +281,10 @@ jobs:
               --swift-sdk "$ANDROID_SDK_ID" --triple "$arch-unknown-linux-android$ANDROID_API"
           done
 
+      # The script gives the boot 10 minutes, and shows the emulator's log
+      # if it fails.
       - name: Start the Android emulator
-        timeout-minutes: 10
+        timeout-minutes: 15
         run: .github/scripts/android-start-emulator.sh "$ANDROID_API"
 
       - name: Test on the Android emulator
