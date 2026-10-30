@@ -255,12 +255,17 @@ jobs:
         with:
           swift-version: ${{ env.SWIFT_VERSION }}
 
-      # The SDK's setup script links the NDK's headers and libraries in.
+      # The SDK's setup script links the NDK's headers and libraries in. The
+      # build itself finds the NDK through ANDROID_NDK_ROOT or
+      # ANDROID_NDK_HOME first, which the image sets to an older one (whose
+      # headers Swift imports differently), so both are pointed at it too.
       - name: Install the Swift SDK for Android
         run: |
           swift sdk install "$ANDROID_SDK_URL" --checksum "$ANDROID_SDK_SHA256" --swift-sdks-path "$RUNNER_TEMP/swift-sdks"
           ndk="$(ls -d "$ANDROID_HOME/ndk/$ANDROID_NDK_MAJOR".* | tail -n 1)"
           ANDROID_NDK_HOME="$ndk" "$RUNNER_TEMP/swift-sdks/$ANDROID_SDK_ID.artifactbundle/swift-android/scripts/setup-android-sdk.sh"
+          echo "ANDROID_NDK_ROOT=$ndk" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
 
       - name: Resolve dependencies
         run: swift package resolve
