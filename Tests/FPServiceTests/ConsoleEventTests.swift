@@ -14,19 +14,31 @@
     struct ConsoleEventTests {
         @Test("a third Ctrl-Break ends the process the way Ctrl-C does")
         func thirdBreak() throws {
-            let fixture = try #require(
-                Fixture.launch(["\(SIGBREAK)"]),
-                "ServiceFixture is not built next to the tests"
-            )
-            try #require(fixture.waitFor("ready"), "output: \(fixture.lines)")
-            try #require(fixture.sendBreak(), "Ctrl-Break could not be sent")
-            let shuttingDown = ServiceEvent.shuttingDown(.signal(SIGBREAK)).description
-            try #require(fixture.waitFor(shuttingDown), "output: \(fixture.lines)")
-            try #require(fixture.sendBreak(), "Ctrl-Break could not be sent")
-            // serve was cancelled; dispose never returns
-            try #require(fixture.waitFor("disposing"), "output: \(fixture.lines)")
-            try #require(fixture.sendBreak(), "Ctrl-Break could not be sent")
-            #expect(fixture.end() == 0xC000_013A, "STATUS_CONTROL_C_EXIT; output: \(fixture.lines)")
+            try expectThirdBreak()
         }
+
+        /// Ending the process flushes its output, which must not wait forever.
+        @Test("a third Ctrl-Break ends the process even when its output is stuck")
+        func stalledOutput() throws {
+            try expectThirdBreak(stall: true)
+        }
+    }
+
+    /// Launches the fixture and sends it Ctrl-Break three times, each once the
+    /// one before has had its effect; expects it to end as Ctrl-C ends it.
+    private func expectThirdBreak(stall: Bool = false) throws {
+        let fixture = try #require(
+            Fixture.launch(["\(SIGBREAK)"] + (stall ? ["stall"] : [])),
+            "ServiceFixture is not built next to the tests"
+        )
+        try #require(fixture.waitFor("ready"), "output: \(fixture.lines)")
+        try #require(fixture.sendBreak(), "Ctrl-Break could not be sent")
+        let shuttingDown = ServiceEvent.shuttingDown(.signal(SIGBREAK)).description
+        try #require(fixture.waitFor(shuttingDown), "output: \(fixture.lines)")
+        try #require(fixture.sendBreak(), "Ctrl-Break could not be sent")
+        // serve was cancelled; dispose never returns
+        try #require(fixture.waitFor("disposing"), "output: \(fixture.lines)")
+        try #require(fixture.sendBreak(), "Ctrl-Break could not be sent")
+        #expect(fixture.end() == 0xC000_013A, "STATUS_CONTROL_C_EXIT; output: \(fixture.lines)")
     }
 #endif

@@ -23,12 +23,12 @@ import ProcessSignals
 /// takes a third signal. Prints each event, and `disposing`, a line at a
 /// time for the test to read.
 ///
-/// On macOS, Linux and Android, two more modes. With `stall`, a stdio stream
-/// is stuck writing to a pipe nobody reads, as when the process's output
-/// stalls: flushing every stream waits on it. With `nofile`, it instead runs
-/// a service with no file descriptor left, then another with them back, and
-/// prints how each ended: on Linux and Android the signals need a pipe, made
-/// once per process, so this takes a process of its own.
+/// Two more modes. With `stall`, a stdio stream is stuck writing to a pipe
+/// nobody reads, as when the process's output stalls: flushing every stream
+/// waits on it. With `nofile` (not on Windows), it instead runs a service
+/// with no file descriptor left, then another with them back, and prints how
+/// each ended: on Linux and Android the signals need a pipe, made once per
+/// process, so this takes a process of its own.
 ///
 /// Usage: `ServiceFixture <signal number> [stall]`, or `ServiceFixture nofile`
 @main
@@ -47,9 +47,7 @@ enum ServiceFixture {
             printLine("usage: ServiceFixture <signal number> [stall] | nofile")
             exit(2)
         }
-        #if !os(Windows)
-            if arguments.count == 3 { stallOutput() }
-        #endif
+        if arguments.count == 3 { stallOutput() }
         await runUntilEnded(signal)
         printLine("returned")  // never: stage 3 ends the process first
     }
@@ -136,26 +134,36 @@ func stuck() -> BracketAsync<Void, Never> {
         }
     }
 
-    /// Leaves a stdio stream stuck in a flush to a pipe nobody reads, holding
-    /// the stream's lock: `fflush(nil)` waits on it forever.
-    func stallOutput() {
-        var ends: [Int32] = [-1, -1]
-        guard pipe(&ends) == 0 else {
-            printLine("stall: no pipe")
-            exit(2)
-        }
-        // The read end stays open and unread, so the writes block, not fail.
-        let writeEnd = ends[1]
-        DispatchQueue(label: "ServiceFixture.stall").async {
+#endif
+
+/// Leaves a stdio stream stuck in a flush to a pipe nobody reads, holding
+/// the stream's lock: `fflush(nil)` waits on it forever.
+func stallOutput() {
+    var ends: [Int32] = [-1, -1]
+    #if os(Windows)
+        let made = _pipe(&ends, 4096, 0x8000)  // _O_BINARY
+    #else
+        let made = pipe(&ends)
+    #endif
+    guard made == 0 else {
+        printLine("stall: no pipe")
+        exit(2)
+    }
+    // The read end stays open and unread, so the writes block, not fail.
+    let writeEnd = ends[1]
+    DispatchQueue(label: "ServiceFixture.stall").async {
+        #if os(Windows)
+            guard let stream = _fdopen(writeEnd, "w") else { return }
+        #else
             guard let stream = fdopen(writeEnd, "w") else { return }
-            let chunk = String(repeating: "x", count: 4096)
-            while true {
-                fputs(chunk, stream)
-                fflush(stream)
-            }
+        #endif
+        let chunk = String(repeating: "x", count: 4096)
+        while true {
+            fputs(chunk, stream)
+            fflush(stream)
         }
     }
-#endif
+}
 
 /// Writes `line` to standard output at once, past stdio's buffer: the test
 /// reading the pipe sees it before the process ends, and a stalled stdio

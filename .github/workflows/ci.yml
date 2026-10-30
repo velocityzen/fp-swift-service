@@ -120,11 +120,7 @@ jobs:
       # Every test but the ones that launch a process (macOS, Linux and
       # Android only): the simulators can't run the fixture.
       - name: Test on the ${{ matrix.platform }} Simulator
-        run: |
-          line="$(xcrun simctl list devices available | grep -m1 "${{ matrix.device }}")"
-          udid="$(echo "$line" | grep -oE '[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}')"
-          echo "Simulator: $line"
-          xcodebuild test -quiet -scheme fp-swift-service-Package -destination "id=$udid,arch=arm64"
+        run: .github/scripts/test-simulator.sh "${{ matrix.device }}"
 
   linux:
     name: Test Linux ${{ matrix.arch }} (Swift ${{ matrix.swift }})
