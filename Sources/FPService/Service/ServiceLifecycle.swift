@@ -16,17 +16,20 @@ struct ServiceLifecycle<Failure: Error>: Sendable {
     private let timeout: Duration?
     private let events: ServiceEvents<Failure>.Continuation?
     private let terminate: @Sendable (Int32) -> Void
+    private let offload: Offload
 
     init(
         clock: ServiceClock,
         timeout: Duration?,
         events: ServiceEvents<Failure>.Continuation?,
-        terminate: @escaping @Sendable (Int32) -> Void
+        terminate: @escaping @Sendable (Int32) -> Void,
+        offload: @escaping Offload = onItsOwnThread
     ) {
         self.inbox = Inbox(clock: clock)
         self.timeout = timeout
         self.events = events
         self.terminate = terminate
+        self.offload = offload
     }
 
     /// Takes one step, emitting its events; returns its effect.
@@ -43,7 +46,7 @@ struct ServiceLifecycle<Failure: Error>: Sendable {
     ///
     /// The loop carries out each effect itself. Stage 1 starts the timeout
     /// and requests the shutdown on a thread of its own (see
-    /// ``requestOnItsOwnThread(_:)``), so a handler that blocks never holds up
+    /// ``onItsOwnThread(_:)``), so a handler that blocks never holds up
     /// the loop; stage 2 cancels the bracket's task; stage 3 ends the process.
     ///
     /// Once `serve` has returned in stage 1, however stage 1 began, dispose
@@ -54,7 +57,9 @@ struct ServiceLifecycle<Failure: Error>: Sendable {
         shutdown: Shutdown,
         signals: AsyncStream<Int32>
     ) async {
-        let (inbox, timeout, terminate) = (self.inbox, self.timeout, self.terminate)
+        let (inbox, timeout, terminate, offload) = (
+            self.inbox, self.timeout, self.terminate, self.offload
+        )
         let mayStop = Gate()
         await withTaskGroup(of: Void.self) { helpers in
             helpers.addTask { await forward(signals, to: inbox) }
@@ -65,7 +70,7 @@ struct ServiceLifecycle<Failure: Error>: Sendable {
                             helpers.addTask { await cancel(after: timeout, inbox) }
                         }
                         helpers.addTask {
-                            await requestOnItsOwnThread(shutdown)
+                            await offload { shutdown.request() }
                             mayStop.open()
                         }
                         if let reply = message.reply { mayStop.wait { reply.resume() } }
@@ -99,15 +104,19 @@ struct ServiceLifecycle<Failure: Error>: Sendable {
     }
 }
 
-/// Requests `shutdown` on a Dispatch thread, and waits for its handlers to
-/// return without holding a thread of the concurrency pool. A handler that
-/// blocks then blocks only that thread: the pool, however few threads it has
-/// (the simulators can have one or two), keeps running the loop, the later
-/// signals and the timeout.
-private func requestOnItsOwnThread(_ shutdown: Shutdown) async {
+/// Runs synchronous work somewhere and waits for it: the shutdown request,
+/// whose handlers may block.
+typealias Offload = @Sendable (@escaping @Sendable () -> Void) async -> Void
+
+/// Runs `work` on a Dispatch thread, and waits for it without holding a
+/// thread of the concurrency pool. Work that blocks then blocks only that
+/// thread: the pool, however few threads it has (the simulators can have
+/// one or two), keeps running the loop, the later signals and the timeout.
+@Sendable
+func onItsOwnThread(_ work: @escaping @Sendable () -> Void) async {
     await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
         DispatchQueue(label: "FPService.shutdown").async {
-            shutdown.request()
+            work()
             done.resume()
         }
     }

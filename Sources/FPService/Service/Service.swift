@@ -41,6 +41,8 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
     let clock: ServiceClock
     let signalStream: @Sendable ([Int32]) async -> Signals
     let terminate: @Sendable (Int32) -> Void
+    let taskExecutor: (any TaskExecutor)?
+    let offload: Offload
 
     /// - Parameters:
     ///   - service: the composed bracket; acquire starts it, dispose stops it.
@@ -70,7 +72,9 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
     }
 
     /// The seams tests replace: where signals come from (and which were
-    /// subscribed to), and how stage 3 ends the process.
+    /// subscribed to), how stage 3 ends the process, the executor the run's
+    /// own tasks prefer, and where the shutdown request runs. A simulation
+    /// replaces all of them, so every task and thread of the run is its own.
     init(
         _ service: sending BracketAsync<Resource, Failure>,
         shutdownSignals: [Int32],
@@ -78,6 +82,8 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
         clock: ServiceClock,
         signalStream: @escaping @Sendable ([Int32]) async -> Signals,
         terminate: @escaping @Sendable (Int32) -> Void,
+        taskExecutor: (any TaskExecutor)? = nil,
+        offload: @escaping Offload = onItsOwnThread,
         observe: sending (@concurrent (ServiceEvents<Failure>) async -> Void)?
     ) {
         self.bracket = Mutex(service)
@@ -87,6 +93,8 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
         self.clock = clock
         self.signalStream = signalStream
         self.terminate = terminate
+        self.taskExecutor = taskExecutor
+        self.offload = offload
     }
 
     /// Runs the service once: acquire, `serve`, dispose.
@@ -116,17 +124,24 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
             clock: clock,
             timeout: shutdownTimeout,
             events: continuation,
-            terminate: terminate
+            terminate: terminate,
+            offload: offload
         )
 
         async let observed: Void = runObserver(observe, events)
         let (signals, _, unavailable) = await signalStream(shutdownSignals)
         if unavailable.isEmpty {
             _ = lifecycle.take(.started)
-            lifecycle = await runLifecycle(lifecycle, bracket, serve, signals: signals)
+            lifecycle = await runLifecycle(
+                lifecycle,
+                bracket,
+                serve,
+                signals: signals,
+                on: taskExecutor
+            )
         } else {
             _ = lifecycle.take(.signalsUnavailable(unavailable))
-            await release(signals)
+            await release(signals, on: taskExecutor)
         }
 
         let result = lifecycle.result

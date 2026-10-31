@@ -27,14 +27,15 @@ func runLifecycle<Resource, Failure: Error>(
     _ lifecycle: ServiceLifecycle<Failure>,
     _ bracket: sending BracketAsync<Resource, Failure>,
     _ serve: sending @escaping @concurrent (Resource, Shutdown) async -> Result<Void, Failure>,
-    signals: AsyncStream<Int32>
+    signals: AsyncStream<Int32>,
+    on taskExecutor: (any TaskExecutor)?
 ) async -> ServiceLifecycle<Failure> {
     let inbox = lifecycle.inbox
     let shutdown = Shutdown()
-    let service = Task {
+    let service = Task(executorPreference: taskExecutor) {
         await runBracket(bracket, serve, shutdown, inbox)
     }
-    let loop = Task {
+    let loop = Task(executorPreference: taskExecutor) {
         var lifecycle = lifecycle
         await lifecycle.run(service, shutdown: shutdown, signals: signals)
         return lifecycle
@@ -85,8 +86,8 @@ func cancel<Failure>(after timeout: Duration, _ inbox: Inbox<Failure>) async {
 
 /// Ends a signal stream that is never read, which releases its signals: a
 /// stream iterated in a cancelled task ends.
-func release(_ signals: AsyncStream<Int32>) async {
-    let reader = Task {
+func release(_ signals: AsyncStream<Int32>, on taskExecutor: (any TaskExecutor)?) async {
+    let reader = Task(executorPreference: taskExecutor) {
         for await _ in signals {}
     }
     reader.cancel()
