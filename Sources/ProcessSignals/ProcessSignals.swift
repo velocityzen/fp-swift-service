@@ -23,47 +23,25 @@ import Synchronization
 /// }
 /// ```
 ///
-/// - Each delivery is one element. Signals sent in the same instant can
-///   merge: the kernel keeps only one pending instance of a standard signal
-///   (Darwin's kqueue still counts every send).
-/// - A signal that can't be subscribed to is left out: a number this platform
-///   doesn't have (on Linux and Android, also one the C library keeps for
-///   itself), or SIGKILL or SIGSTOP, which can't be caught. If no signal is
-///   left, or the list is empty, the stream is already finished.
-/// - Returns once the signals are subscribed to, so a signal sent right after
-///   this call is not missed. One sent during the call is never lost either:
-///   it has its previous effect, or is delivered, or both.
-/// - While the stream lives, a handler of its own catches the signals, so
-///   their default actions can't end the process. Like any handler, it can
-///   interrupt a blocking call on a thread that doesn't block the signal;
-///   with `SA_RESTART`, most calls resume. `exec` resets a caught signal, so
-///   child processes start with the default actions.
-/// - The stream ends when the task iterating it is cancelled, or when the
-///   stream and all its iterators are deallocated. Ending it unsubscribes
-///   from the signals. Breaking out of the loop alone does not end the stream
-///   while it is still referenced.
-/// - Several streams can subscribe to the same signal at once: each gets every
-///   delivery, and the signal's previous disposition is restored when the
-///   last of them ends.
-/// - Waiting costs no thread of its own: Dispatch delivers the signals through
-///   the same machinery it uses for every other source.
-/// - If the signals can't be subscribed to at all (on Linux and Android,
-///   when no pipe can be made), the stream is already finished and the
-///   dispositions are left alone; a later call tries again.
+/// - Returns once the signals are subscribed to, so none sent after the
+///   call is missed.
+/// - Signals that can't be caught (`SIGKILL`, `SIGSTOP`, or numbers the
+///   platform lacks or reserves) are left out. If none are left, the
+///   stream is already finished. On Linux and Android, so is a stream that
+///   can't subscribe at all (no file descriptor left); a later call retries.
+/// - While the stream lives, the signals' default actions are suspended.
+///   They are caught, not ignored, so child processes start with the
+///   defaults.
+/// - Cancelling the iterating task, or releasing the stream, ends it; the
+///   last stream on a signal restores its previous disposition. Breaking
+///   out of the loop doesn't end it.
+/// - Several streams can share a signal; each gets every delivery. Signals
+///   sent at the same instant may merge, except on Darwin.
 ///
-/// On Darwin the handler does nothing, and the signals are read from kqueue
-/// through Dispatch signal sources. (Not `SIG_IGN`: a child process would
-/// inherit it across `exec`, and an ignored SIGCHLD is never sent at all.)
-/// On Linux and Android the handler writes each signal to a pipe that a
-/// Dispatch read source drains; Dispatch signal sources are not used there,
-/// because libdispatch installs a handler of its own that it never removes.
-///
-/// Windows has no signals to catch: Ctrl-C, Ctrl-Break, and the console
-/// closing, the user logging off or the system shutting down reach a console
-/// process as control events. They are delivered as SIGINT, SIGBREAK and
-/// SIGTERM, the only signals that can be subscribed to there. Windows ends
-/// the process once a close, logoff or shutdown event has been handled, so
-/// its handler returns only once no stream is subscribed to SIGTERM any more.
+/// On Windows, console events arrive as SIGINT (Ctrl-C), SIGBREAK
+/// (Ctrl-Break) and SIGTERM (close, logoff, shutdown), the only signals
+/// available there. A SIGTERM event is held while any stream subscribes to
+/// SIGTERM, since Windows ends the process once it is handled.
 public func processSignals(_ signals: [Int32]) async -> AsyncStream<Int32> {
     await registerSignals(signals).stream
 }

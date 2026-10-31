@@ -48,7 +48,7 @@ struct GateTests {
     @Test("a latch's waiter ignores cancellation, and returns only once the latch opens")
     func latchIgnoresCancellation() async throws {
         let latch = Latch()
-        let returned = Gate()  // a class, so the task can capture it on Swift 6.3
+        let returned = Gate()
         try await withDeadline {
             await withTaskGroup(of: Void.self) { group in
                 group.addTask {

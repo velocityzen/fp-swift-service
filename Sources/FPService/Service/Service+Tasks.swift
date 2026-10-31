@@ -32,10 +32,6 @@ func runLifecycle<Resource, Failure: Error>(
     let inbox = lifecycle.inbox
     let shutdown = Shutdown()
     let service = Task {
-        // Sound: this function took both as `sending`, and this task is the
-        // only one that can reach them.
-        nonisolated(unsafe) let bracket = bracket
-        nonisolated(unsafe) let serve = serve
         await runBracket(bracket, serve, shutdown, inbox)
     }
     let loop = Task {
@@ -51,23 +47,20 @@ func runLifecycle<Resource, Failure: Error>(
 }
 
 /// Runs the bracket — acquire, `serve`, dispose — telling the loop how it
-/// goes. Once `serve` returns, waits for the loop's step: if it begins stage
-/// 1, the shutdown handlers run before dispose does. `@concurrent`: it is
-/// the bracket's own task, off the caller's actor.
+/// goes. Once `serve` returns, waits for the loop's step: in stage 1, however
+/// it began, the shutdown handlers return before dispose begins, unless
+/// stage 2 begins first. `@concurrent`: it is the bracket's own task, off the
+/// caller's actor.
 @concurrent
 func runBracket<Resource, Failure: Error>(
-    _ bracket: sending BracketAsync<Resource, Failure>,
-    _ serve: sending @escaping @concurrent (Resource, Shutdown) async -> Result<Void, Failure>,
+    _ bracket: BracketAsync<Resource, Failure>,
+    _ serve: @escaping @concurrent (Resource, Shutdown) async -> Result<Void, Failure>,
     _ shutdown: Shutdown,
     _ inbox: Inbox<Failure>
 ) async {
     let result = await bracket { acquired in
         inbox.post(.ready)
-        // Sound: the body runs in this task, off any actor, and only awaits
-        // `serve`, so nothing else reaches the resource meanwhile. Swift 6.4
-        // infers that from `@concurrent`; Swift 6.3 has to be told.
-        nonisolated(unsafe) let resource = acquired
-        let served = await serve(resource, shutdown)
+        let served = await serve(acquired, shutdown)
         await inbox.ask(.served(served, cancelled: Task.isCancelled, at: inbox.now))
         return .success(())
     }

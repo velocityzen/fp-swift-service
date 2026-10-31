@@ -5,13 +5,11 @@
 [![Documentation](https://img.shields.io/badge/documentation-DocC-purple)](https://swiftpackageindex.com/velocityzen/fp-swift-service/documentation/fpservice)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-A functional service lifecycle for Swift, in the [fp-swift](https://github.com/velocityzen/fp-swift) style. A service is a `BracketAsync`, you compose services with do-notation, and running them returns a `Result`. Nothing throws.
+A functional service lifecycle for Swift, in the [fp-swift](https://github.com/velocityzen/fp-swift) style. Services are `BracketAsync` values composed with do-notation, and running them returns a `Result`. Nothing throws.
 
-The walkthrough below is `Sources/Example`, a CLI with one subcommand per step: `swift run Example <step>`. Its code blocks are copied from the example. The Reference and ProcessSignals sections show API outlines.
+The examples come from `Sources/Example`; run each step with `swift run Example <step>`.
 
 ## Installation
-
-Add to your `Package.swift`:
 
 ```swift
 dependencies: [
@@ -19,9 +17,9 @@ dependencies: [
 ]
 ```
 
-Then add `FPService` to your target's dependencies. `ProcessSignals` is a separate product, if you only need the signal stream.
+Add `FPService` to your target. `ProcessSignals` is also available on its own.
 
-It needs Swift 6.3 or later, and runs on macOS, iOS, tvOS, watchOS and visionOS 26 or later, Linux, Android and Windows.
+Requires Swift 6.4. Runs on macOS, iOS, tvOS, watchOS and visionOS 26+, Linux, Android and Windows.
 
 Documentation: [FPService](https://swiftpackageindex.com/velocityzen/fp-swift-service/documentation/fpservice), [ProcessSignals](https://swiftpackageindex.com/velocityzen/fp-swift-service/documentation/processsignals).
 
@@ -29,7 +27,7 @@ Documentation: [FPService](https://swiftpackageindex.com/velocityzen/fp-swift-se
 
 `swift run Example`, then Ctrl-C.
 
-**A service is a function that returns a bracket.** Acquire starts it, and the service is ready when acquire returns. Dispose stops it.
+A service is a function that returns a bracket: acquire starts it, dispose stops it.
 
 <!-- example: brackets -->
 ```swift
@@ -60,7 +58,7 @@ func withServer(_ database: Database) -> BracketAsync<Server, ExampleError> {
 }
 ```
 
-**Compose services into one bracket** with do-notation. A dependency is just a parameter: `withServer(_:)` needs a `Database`, so it comes second. Services start in this order and stop in reverse.
+Compose services with do-notation. A dependency is a parameter. Services start in order and stop in reverse.
 
 <!-- example: dependencies -->
 ```swift
@@ -71,7 +69,7 @@ func withDependencies() -> BracketAsync<(Database, Server), ExampleError> {
 }
 ```
 
-**Run it.** `Service` subscribes to the listed signals. Calling it starts the services and waits for a signal, then stops them: the server closes first, the database last.
+`Service` subscribes to the signals, starts the services, waits for a signal, then stops them.
 
 <!-- example: quickstart -->
 ```swift
@@ -79,13 +77,13 @@ let withService = Service(withDependencies(), shutdownSignals: [SIGINT, SIGTERM]
 let result = await withService()
 ```
 
-`result` is a `Result<ServiceOutcome, ServiceError<ExampleError>>`. `ServiceOutcome` says what stopped the service; a `ServiceError` names the phase that failed and carries your own error untouched. See [Results](#results).
+`result` is a `Result<ServiceOutcome, ServiceError<ExampleError>>`; see [Results](#results).
 
 ## Watching events
 
 `swift run Example events`
 
-Pass a closure to observe the service. It receives every lifecycle event as a stream of `Result`s, so logging or metrics is just a loop. The stream ends by itself after the last event.
+An observer receives every lifecycle event as a stream of `Result`s. The stream finishes after the last event.
 
 <!-- example: events -->
 ```swift
@@ -103,15 +101,13 @@ let withService = Service(
 let result = await withService()
 ```
 
-The observer runs next to the service, so its lines can interleave with the services' own output. See [Events](#events) for the full list.
+fp-swift's combinators (`failures()`, `successes()`, `tap`) and fp-swift-pipe's `FromResult` work on the stream directly. See [Events](#events) for the full list.
 
-Because `events` is an `AsyncSequence` of `Result`s, fp-swift's combinators work on it directly: `events.failures()` gives just the errors, `events.tap { … }` runs a side effect per success, and `events.successes()` drops the failures. fp-swift-pipe reads it with `FromResult(events)` as the source of a `Pipe`.
-
-## Doing work: the service body
+## The service body
 
 `swift run Example job`
 
-Calling `withService()` with no argument just waits for a signal. To do work while the services are up, pass a body. It gets the acquired resources, and **when it returns, the service stops**, the same as on a signal.
+To do work while the services are up, pass a body. It receives the resources; when it returns, the service stops.
 
 <!-- example: job -->
 ```swift
@@ -140,9 +136,7 @@ let result = await withService(importBatches)
 
 `swift run Example requests`, then Ctrl-C.
 
-A body that runs until it is told to stop needs to know when a stop was requested, from a signal, say. That is its second argument, `Shutdown`, which the run requests when the graceful stage begins. The body still stops by returning.
-
-The simplest way to use it is `withCancellation(on: shutdown, work)`. It runs `work` and returns its result; if shutdown is requested first, `work` is cancelled, and the call waits for it to return. A failure that happens before shutdown comes back at once.
+A long-running body watches its `Shutdown` argument, which is requested when the service starts stopping. `withCancellation(on:_:)` cancels the work on shutdown and returns its result.
 
 <!-- example: requests -->
 ```swift
@@ -176,13 +170,13 @@ let withService = Service(
 let result = await withService(handleRequests)
 ```
 
-For anything else, `shutdown.isRequested` and `await shutdown.requested` read it directly. To test a body on its own, make a `Shutdown()` and call `request()` on it.
+`shutdown.isRequested` and `await shutdown.requested` read the request directly. To test a body on its own, pass it a `Shutdown()` and call `request()`.
 
 ## Draining
 
-`swift run Example drain`, then Ctrl-C while a request is in flight.
+`swift run Example drain`, then Ctrl-C during a request.
 
-Cancelling the work cuts off whatever is in flight. When the work has its own graceful-stop API, call that on shutdown instead, and let the work finish by itself. Here the server stands in for such a library:
+When the work has its own graceful stop, call it on shutdown instead of cancelling:
 
 <!-- example: server -->
 ```swift
@@ -215,7 +209,7 @@ final class Server: Sendable {
 }
 ```
 
-`withShutdownHandler(on:_:operation:)` calls the handler when shutdown is requested (at once, if it already was) and removes it when the operation ends:
+`withShutdownHandler(on:_:operation:)` runs the handler on shutdown and removes it when the operation ends. Dispose waits for running handlers unless the service is cancelled first.
 
 <!-- example: drain -->
 ```swift
@@ -240,21 +234,19 @@ let withService = Service(
 let result = await withService(drainRequests)
 ```
 
-`shutdownTimeout` bounds the whole graceful stop. If the body and dispose take longer, the service is cancelled.
-
-Dispose runs after the body returns, so a resource drains and closes in its own dispose without ever seeing `shutdown`.
+`shutdownTimeout` limits the graceful stop, dispose included; past it, the service is cancelled. Work that runs on its own after acquire can drain in its dispose instead.
 
 ## Stopping
 
 | Stage | Triggered by | What happens |
 |---|---|---|
 | 1. graceful | a signal, or the body returning | `shutdown` is requested; the `shutdownTimeout` clock starts |
-| 2. cancel | a signal during stage 1, the timeout passing, or cancelling the calling task | the service is cancelled; dispose still runs |
-| 3. kill | a signal during stage 2 | the signal's default action is restored and the signal re-sent; the process ends (with exit status 128 + the signal, if that action would leave it running). On Windows it exits with `STATUS_CONTROL_C_EXIT`, as Ctrl-C ends a process |
+| 2. cancel | a signal during stage 1, the timeout, or cancelling the calling task | the service is cancelled; dispose still runs |
+| 3. kill | a signal during stage 2 | the process ends as the signal ends it (exit status 128 + the signal if its default action wouldn't); on Windows, with `STATUS_CONTROL_C_EXIT` |
 
-Each signal from `shutdownSignals` moves the stop one stage forward. The signals are subscribed to before acquire and unsubscribed from after dispose, so they can never kill the process mid-cleanup by accident.
+Each signal from `shutdownSignals` advances one stage. The signals are held from before acquire until after dispose, so they can't end the process mid-cleanup.
 
-In stage 2, dispose runs in a cancelled task. Cleanup that must finish anyway uses fp-swift-bracket's `BracketAsync(acquire:uncancellableDispose:)`. There is no hard deadline after that: a dispose that ignores cancellation is waited for until it returns, or until one more signal ends the process. Service managers bound it from outside, sending `SIGKILL` after their own grace period.
+In stage 2, dispose runs in a cancelled task; use fp-swift-bracket's `BracketAsync(acquire:uncancellableDispose:)` for cleanup that must finish. A dispose that ignores cancellation is awaited until it returns or another signal ends the process.
 
 ## Reference
 
@@ -273,28 +265,26 @@ await withService(body)   // body: (Resource, Shutdown) async -> Result<Void, Fa
 await withService()       // default body: wait for shutdown
 ```
 
-A `Service` value runs once; calling it twice doesn't compile. Brackets stay reusable, so build a new `Service` for another run. The call returns after dispose has finished, the signals are released, and the shutdown handlers and the observer have returned.
+A `Service` runs once; a second call doesn't compile. Brackets are reusable. The call returns once dispose, the shutdown handlers and the observer have finished and the signals are released.
 
 ### Results
 
 | What happened | Result |
 |---|---|
-| a shutdown signal can't be subscribed to | `.failure(.signalsUnavailable(signals))` — nothing runs |
-| acquire failed | `.failure(.startFailed(e))` — body and dispose skipped |
+| a shutdown signal can't be subscribed to | `.failure(.signalsUnavailable(signals))`; nothing runs |
+| acquire failed | `.failure(.startFailed(e))`; body and dispose skipped |
 | the body failed | `.failure(.serveFailed(e))` |
 | dispose failed | `.failure(.stopFailed(e))` |
 | both failed | `.failure(.serveAndStopFailed(serve:stop:))` |
-| the timeout passed | `.failure(.shutdownTimeout(after:serve:stop:))` — first, with any body or dispose failure |
+| the timeout passed | `.failure(.shutdownTimeout(after:serve:stop:))`, with any body or dispose failure |
 | otherwise | `.success(ServiceOutcome)` |
 
-`ServiceOutcome` holds what the stop events said:
-
-| Field | Meaning |
+| `ServiceOutcome` field | Meaning |
 |---|---|
-| `shutdownReason` | why the graceful shutdown began: `.serveReturned` or `.signal(n)`; `nil` if there was none (the caller cancelled while it was running) |
-| `cancellationReason` | `nil` if it stopped gracefully; otherwise why it was cancelled: `.signal(n)` or `.caller` |
+| `shutdownReason` | why stage 1 began: `.serveReturned` or `.signal(n)`; `nil` if the caller cancelled first |
+| `cancellationReason` | why stage 2 began: `.signal(n)` or `.caller`; `nil` if the stop was graceful |
 | `stopDuration` | from the end of the body to the end of dispose |
-| `shutdownDuration` | from the start of the graceful shutdown to the end of dispose, the span `shutdownTimeout` limits; for a signal it includes the work the body finishes before returning; `nil` if there was no graceful shutdown |
+| `shutdownDuration` | from the start of stage 1 to the end of dispose, the span `shutdownTimeout` limits |
 
 ### Events
 
@@ -310,16 +300,16 @@ A `Service` value runs once; calling it twice doesn't compile. Brackets stay reu
 .success(.stopped(ServiceOutcome(shutdownReason: .signal(SIGTERM), cancellationReason: .signal(SIGTERM), stopDuration: …, shutdownDuration: …)))
 ```
 
-Failures arrive as `.failure`, each once, where it happens: `.signalsUnavailable`, `.startFailed`, `.serveFailed`, `.shutdownTimeout(after:)` and `.stopFailed`; the result combines them (for example into `.serveAndStopFailed`). A run that never started ends with its failure instead of `.stopped`. If the calling task is cancelled, the observer is cancelled too and may miss the last events; the result still reports the cancellation.
+Each failure arrives once, as `.failure`, when it happens; the result combines them. A run that never started ends with its failure instead of `.stopped`. If the calling task is cancelled, the observer may miss the last events.
 
 ### Notes
 
-- **Build brackets outside the main actor.** `Service` takes the bracket, the body and the observer as `sending`: they run in tasks of their own, so stage 2 can cancel them. Closures written on the main actor are isolated to it and can't be sent. Build them in top-level (`nonisolated`) functions, as the example does. The other async functions (`withShutdownHandler`'s operation, `shutdown.requested`) run on the caller's actor.
-- **Throwing code:** fp-swift-bracket's `BracketAsync.throwing(acquire:dispose:)` bridges it into a bracket.
+- **Build brackets outside the main actor.** The bracket, body and observer are `sending`, because they run in tasks that stage 2 can cancel. Main-actor closures can't be sent, so build them in top-level functions, as the example does.
+- **Throwing code:** wrap it with fp-swift-bracket's `BracketAsync.throwing(acquire:dispose:)`.
 
 ## ProcessSignals
 
-A separate product with no package dependencies: process signals as an `AsyncStream`, delivered through Dispatch (on Windows, console events; see below). `Service` uses it; you can use it on its own.
+Process signals as an `AsyncStream`, with no package dependencies. `Service` is built on it.
 
 ```swift
 import ProcessSignals
@@ -329,14 +319,11 @@ for await signal in await processSignals([SIGTERM, SIGINT]) {
 }
 ```
 
-- **Startup:** `processSignals(_:)` returns once every signal is subscribed to, so a signal sent right after the call is not missed. One sent during the call has its previous effect or is delivered; it is never lost.
-- **Left out:** a signal that can't be subscribed to is skipped: a number the platform doesn't have (on Linux and Android, also one the C library keeps for itself), or `SIGKILL` and `SIGSTOP`, which can't be caught. If none is left, the stream is already finished.
-- **Deliveries:** each delivery is one element. Signals sent in the same instant can merge: the kernel keeps only one pending instance of a standard signal (Darwin's kqueue still counts every send).
-- **While the stream lives:** a handler of its own catches the signals, so their default actions can't end the process. Like any handler, it can interrupt a blocking call on a thread that doesn't block the signal; with `SA_RESTART`, most calls resume.
-- **Child processes:** `exec` resets a caught signal to its default action, so a child started with `posix_spawn`, `fork` and `exec`, or `system()` is unaffected. That is why the signals are caught, never set to `SIG_IGN`, which survives `exec`. `SIGCHLD` can be subscribed to as well, and children can still be waited for.
-- **Ending the stream:** cancelling the task that iterates it ends it. That unsubscribes it from the signals; the last subscriber to a signal restores its previous disposition. Breaking out of the loop does not end the stream while it is still referenced.
-- **Sharing:** several streams can subscribe to the same signal at once, and each gets every delivery.
-- **No extra thread:** Dispatch delivers signals without a thread of its own.
-- **Names:** `signalName(_:)` gives a signal's conventional name, such as `"SIGTERM"`, or `"signal N"` for an unknown number, matched against the platform's own constants.
-- **Windows:** there are no signals. Ctrl-C, Ctrl-Break, and the console closing, logoff or shutdown arrive as console control events, delivered as `SIGINT`, `SIGBREAK` and `SIGTERM`, the only signals that can be subscribed to there, so `[SIGINT, SIGTERM]` works everywhere. Windows ends the process once a close, logoff or shutdown event is handled, so the handler holds it until no stream is subscribed to `SIGTERM`: the run's dispose gets the time Windows allows. The handler routine runs on a thread Windows starts for each event.
-- **Reference:** the [Signal Reference](https://swiftpackageindex.com/velocityzen/fp-swift-service/documentation/processsignals/signalreference) explains what each signal means, its default action, and which ones to subscribe to.
+- `processSignals(_:)` returns once the signals are subscribed to, so none sent after the call is missed.
+- Signals that can't be caught (`SIGKILL`, `SIGSTOP`, or numbers the platform lacks or reserves) are skipped. If none are left, the stream is already finished.
+- While the stream lives, the signals' default actions are suspended. They are caught, not ignored, so child processes still start with the defaults.
+- Cancelling the iterating task ends the stream; the last stream on a signal restores its previous disposition. Breaking out of the loop doesn't end it.
+- Several streams can share a signal; each gets every delivery. Signals sent at the same instant may merge, except on Darwin.
+- On Windows, console events arrive as `SIGINT` (Ctrl-C), `SIGBREAK` (Ctrl-Break) and `SIGTERM` (close, logoff, shutdown). A `SIGTERM` event is held while any stream subscribes to `SIGTERM`, which gives dispose the few seconds Windows allows.
+
+The [Signal Reference](https://swiftpackageindex.com/velocityzen/fp-swift-service/documentation/processsignals/signalreference) lists what each signal means and which to subscribe to.

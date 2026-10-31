@@ -1,10 +1,10 @@
 # ``FPService``
 
-A functional service lifecycle: a service is a `BracketAsync`, services compose with do-notation, and running them returns a `Result`.
+A functional service lifecycle: services are `BracketAsync` values composed with do-notation, and running them returns a `Result`.
 
 ## Overview
 
-Each service is a function that returns a bracket: acquire starts it, dispose stops it. A dependency is just a parameter. Compose the brackets into one with `BracketAsyncDo`, the composition order is the dependency order, and run it with ``Service``:
+Each service is a function that returns a bracket. Compose them with `BracketAsyncDo`, in dependency order, and run the result with ``Service``:
 
 <!-- example: quickstart -->
 ```swift
@@ -12,11 +12,11 @@ let withService = Service(withDependencies(), shutdownSignals: [SIGINT, SIGTERM]
 let result = await withService()
 ```
 
-`result` is a `Result<ServiceOutcome, ServiceError<ExampleError>>`: the code is the package's Example, see <doc:GettingStarted>.
+`result` is a `Result<ServiceOutcome, ServiceError<ExampleError>>`. The code is the package's Example; see <doc:GettingStarted>.
 
-- **Stopping has three stages.** Graceful, then cancel, then end the process, each reached by one more signal from `shutdownSignals`. See <doc:Stopping>.
-- **Events are a stream of `Result`s.** Pass an observer to log or measure them; fp-swift's combinators work on the stream directly.
-- **Nothing throws.** The services' own error type comes back untouched inside ``ServiceError``.
+- **Three stopping stages:** graceful, cancel, then end the process, each reached by another signal. See <doc:Stopping>.
+- **Events:** an observer receives the lifecycle as a stream of `Result`s.
+- **Nothing throws:** the services' own error comes back untouched inside ``ServiceError``.
 
 Signals come from the companion `ProcessSignals` library.
 

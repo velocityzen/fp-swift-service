@@ -1,14 +1,14 @@
 # Getting Started
 
-Define services as brackets, compose them, run them, and give them work to do.
+Define services as brackets, compose them, run them, and give them work.
 
 ## Overview
 
-The code in this article is the package's `Example` target, a CLI with one subcommand per step (`swift run Example <step>`).
+The code is the package's `Example` target; run each step with `swift run Example <step>`.
 
 ### Define services
 
-A service is a function that returns a bracket. Acquire starts it, and the service is ready when acquire returns. Dispose stops it. A dependency is just a parameter: `withServer(_:)` needs a `Database`.
+A service is a function that returns a bracket: acquire starts it, dispose stops it. A dependency is a parameter.
 
 <!-- example: brackets -->
 ```swift
@@ -41,7 +41,7 @@ func withServer(_ database: Database) -> BracketAsync<Server, ExampleError> {
 
 ### Compose them
 
-Do-notation composes them into one bracket. The composition order is the dependency order: services start top to bottom and stop bottom to top.
+Do-notation composes them into one bracket. Services start in order and stop in reverse.
 
 <!-- example: dependencies -->
 ```swift
@@ -54,7 +54,7 @@ func withDependencies() -> BracketAsync<(Database, Server), ExampleError> {
 
 ### Run them
 
-``Service`` subscribes to the listed signals. Calling it starts the services and waits for a signal, then stops them in reverse order (`swift run Example`, then Ctrl-C).
+``Service`` subscribes to the signals, starts the services, waits for a signal, then stops them (`swift run Example`, then Ctrl-C).
 
 <!-- example: quickstart -->
 ```swift
@@ -62,11 +62,11 @@ let withService = Service(withDependencies(), shutdownSignals: [SIGINT, SIGTERM]
 let result = await withService()
 ```
 
-The result is a `Result<ServiceOutcome, ServiceError<ExampleError>>`. A ``ServiceOutcome`` says why the service stopped; a ``ServiceError`` names the phase that failed and carries your own error untouched.
+A ``ServiceOutcome`` says why the service stopped; a ``ServiceError`` names the failed phase and carries your own error.
 
 ### Watch events
 
-Pass a closure to observe every lifecycle event as a stream of `Result`s (`swift run Example events`). The stream ends by itself after the last event.
+An observer receives every lifecycle event as a stream of `Result`s, which finishes after the last event (`swift run Example events`).
 
 <!-- example: events -->
 ```swift
@@ -84,11 +84,11 @@ let withService = Service(
 let result = await withService()
 ```
 
-Because ``ServiceEvents`` is an `AsyncSequence` of `Result`s, fp-swift's combinators (`failures()`, `successes()`, `tap`) and fp-swift-pipe's `FromResult` work on it directly.
+fp-swift's combinators (`failures()`, `successes()`, `tap`) and fp-swift-pipe's `FromResult` work on ``ServiceEvents`` directly.
 
 ### Do work
 
-Calling the service with no argument just waits for a signal. To do work while the services are up, pass a body. It gets the acquired resources, and when it returns, the service stops (`swift run Example job`).
+To do work while the services are up, pass a body. It receives the resources; when it returns, the service stops (`swift run Example job`).
 
 <!-- example: job -->
 ```swift
@@ -113,8 +113,8 @@ let withService = Service(withDependencies(), shutdownSignals: [SIGINT, SIGTERM]
 let result = await withService(importBatches)
 ```
 
-A body that runs until it is told to stop uses its second argument, ``Shutdown``. See <doc:Stopping>.
+A long-running body watches its second argument, ``Shutdown``. See <doc:Stopping>.
 
 ### Build brackets outside the main actor
 
-``Service`` takes the bracket, the body and the observer as `sending`: they run in tasks of their own, so stage 2 can cancel them. Closures written on the main actor are isolated to it and can't be sent, so build brackets in top-level (`nonisolated`) functions, as above.
+The bracket, body and observer are `sending`, because they run in tasks that stage 2 can cancel. Main-actor closures can't be sent, so build them in top-level functions, as above.

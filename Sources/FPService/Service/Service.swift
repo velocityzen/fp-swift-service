@@ -1,5 +1,6 @@
 import FPBracket
 import ProcessSignals
+import Synchronization
 
 /// One service — a `BracketAsync` the host has already composed — run once.
 ///
@@ -14,27 +15,27 @@ import ProcessSignals
 /// let result = await withService(handleRequests)
 /// ```
 ///
-/// `result` is a `Result<ServiceOutcome, ServiceError<ExampleError>>`, once
-/// dispose has finished. (The code is the package's Example; see
-/// <doc:GettingStarted>.)
+/// `result` is a `Result<ServiceOutcome, ServiceError<ExampleError>>`. (The
+/// code is the package's Example; see <doc:GettingStarted>.)
 ///
-/// Stopping has three stages. Each signal from `shutdownSignals` moves it one
-/// stage forward:
+/// Each signal from `shutdownSignals` advances the stop one stage (see
+/// <doc:Stopping>):
 ///
-/// 1. **graceful** — a signal, or `serve` returning: `shutdown` is requested,
+/// 1. **graceful** — a signal, or `serve` returning: `shutdown` is requested
 ///    and the `shutdownTimeout` clock starts;
-/// 2. **cancel** — a signal during stage 1, the timeout passing, or cancelling
-///    the calling task: the service is cancelled; dispose still runs;
-/// 3. **kill** — a signal during stage 2: the signal's default action is
-///    restored and the signal re-sent, so the process ends (with exit status
-///    128 + the signal, if that action would leave it running). On Windows
-///    it exits with `STATUS_CONTROL_C_EXIT`, as Ctrl-C ends a process.
+/// 2. **cancel** — a signal during stage 1, the timeout, or cancelling the
+///    calling task: the service is cancelled; dispose still runs;
+/// 3. **kill** — a signal during stage 2: the process ends as the signal
+///    ends it.
 ///
-/// The value is `~Copyable` and the call consumes it, so it runs exactly
-/// once; the brackets inside stay reusable.
+/// The value is `~Copyable` and the call consumes it, so it runs once; the
+/// brackets inside stay reusable.
 public struct Service<Resource, Failure: Error>: ~Copyable {
-    let bracket: BracketAsync<Resource, Failure>
-    let observe: (@concurrent (ServiceEvents<Failure>) async -> Void)?
+    // What the run sends to tasks of its own. `init` takes them as
+    // `sending`, and each `Mutex` keeps its value disconnected from the
+    // caller, and from the other, until the call takes it out, once.
+    let bracket: Mutex<BracketAsync<Resource, Failure>?>
+    let observe: Mutex<(@concurrent (ServiceEvents<Failure>) async -> Void)?>
     let shutdownSignals: [Int32]
     let shutdownTimeout: Duration?
     let clock: ServiceClock
@@ -43,12 +44,9 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
 
     /// - Parameters:
     ///   - service: the composed bracket; acquire starts it, dispose stops it.
-    ///   - shutdownSignals: signals subscribed to for the run; see the stages
-    ///     above. If one can't be subscribed to — SIGKILL, SIGSTOP, a number the
-    ///     platform doesn't have, or on Linux and Android any, when the process
-    ///     is out of file descriptors — the run fails with
-    ///     ``ServiceError/signalsUnavailable(_:)`` before acquire: without
-    ///     it, the signal would end the process mid-run, skipping dispose.
+    ///   - shutdownSignals: signals subscribed to for the run. If one can't
+    ///     be, the run fails with ``ServiceError/signalsUnavailable(_:)``
+    ///     before acquire, since that signal could end the process mid-run.
     ///   - shutdownTimeout: how long the graceful stage may take before the
     ///     service is cancelled; `nil` waits indefinitely.
     ///   - clock: deadlines and stop durations; tests inject a manual clock.
@@ -82,8 +80,8 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
         terminate: @escaping @Sendable (Int32) -> Void,
         observe: sending (@concurrent (ServiceEvents<Failure>) async -> Void)?
     ) {
-        self.bracket = service
-        self.observe = observe
+        self.bracket = Mutex(service)
+        self.observe = Mutex(observe)
         self.shutdownSignals = shutdownSignals
         self.shutdownTimeout = shutdownTimeout
         self.clock = clock
@@ -98,20 +96,17 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
     /// it has stopped taking work. The default stays up until shutdown is
     /// requested.
     ///
-    /// - Returns: the ``ServiceOutcome``, or a ``ServiceError`` naming the phase that
-    ///   failed with the service's own error. Returns after dispose has
-    ///   finished, the signals are released (their previous dispositions
-    ///   restored), and the shutdown handlers and the observer have returned.
+    /// - Returns: the ``ServiceOutcome``, or a ``ServiceError`` naming the
+    ///   failed phase with the service's own error. Returns once dispose,
+    ///   the shutdown handlers and the observer have finished and the
+    ///   signals are released.
     public consuming func callAsFunction(
         _ serve: sending @escaping @concurrent (Resource, Shutdown) async -> Result<Void, Failure> =
             waitForShutdown
     ) async -> Result<ServiceOutcome, ServiceError<Failure>> {
-        // Sound: `init` took both as `sending` (disconnected from the
-        // caller), and this ~Copyable value is consumed by the call, so
-        // nothing else can reach them any more.
-        nonisolated(unsafe) let bracket = self.bracket
-        nonisolated(unsafe) let observe = self.observe
-
+        // Always there: the call consumes this value, so it runs once.
+        let bracket = bracket.withLock { $0.take()! }
+        let observe = observe.withLock { $0.take() }
         var events: ServiceEvents<Failure>?
         var continuation: ServiceEvents<Failure>.Continuation?
         if observe != nil {

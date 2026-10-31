@@ -290,3 +290,36 @@ struct StoppingTests {
         #expect(ended > all.firstIndex(of: "stopped:a")!)
     }
 }
+
+// Dispose waits for the shutdown handlers however stage 1 began.
+extension StoppingTests {
+    @Test("a signal's shutdown handlers also return before dispose, after serve has")
+    func signalHandlersBeforeDispose() async throws {
+        let harness = Harness()
+        let blocker = Blocker()
+        let log = harness.log
+        let result = try await run(
+            harness,
+            serve: .returnBeforeHandler(blocker),
+            waitingFor: ["handlers registered"],
+            then: { harness.send(SIGTERM) },
+            service: {
+                // Dispose releases the handler: if it began while the handler
+                // ran, the handler returns after it.
+                BracketAsync(
+                    acquire: { .success("a") },
+                    dispose: { _ in
+                        log.append("stop:a")
+                        blocker.release()
+                        return .success(())
+                    }
+                )
+            }
+        )
+
+        #expect(try result.get().shutdownReason == .signal(SIGTERM))
+        let all = log.all
+        #expect(all.firstIndex(of: "served")! < all.firstIndex(of: "handler returned")!)
+        #expect(all.firstIndex(of: "handler returned")! < all.firstIndex(of: "stop:a")!)
+    }
+}

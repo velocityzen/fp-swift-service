@@ -77,6 +77,8 @@
     /// Windows ends the process once a close, logoff or shutdown event has
     /// been handled, so for those this returns only once no stream is
     /// subscribed to SIGTERM any more: once the run holding it has stopped.
+    /// Any SIGTERM stream holds it, so one that never ends holds the event
+    /// until Windows ends the process anyway (seconds later).
     package func receiveConsoleEvent(_ event: UInt32) -> Bool {
         guard let signal = signal(for: event), catches(signal) else {
             return false

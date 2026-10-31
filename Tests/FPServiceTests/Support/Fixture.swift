@@ -99,7 +99,9 @@
             let argv: [UnsafeMutablePointer<CChar>?] =
                 ([path] + arguments).map { strdup($0) } + [nil]
             defer { argv.forEach { free($0) } }
-            let environment: [UnsafeMutablePointer<CChar>?] = [nil]
+            let environment: [UnsafeMutablePointer<CChar>?] =
+                profileEnvironment().map { strdup($0) } + [nil]
+            defer { environment.forEach { free($0) } }
             var pid: pid_t = 0
             let spawned = posix_spawn(&pid, path, actions, attributes, argv, environment)
             close(ends[1])
@@ -174,6 +176,25 @@
 
     /// Held while a fixture is spawned.
     private let launching = Mutex(())
+
+    /// Under `swift test --enable-code-coverage`, where the fixture's own
+    /// profile goes: next to the tests' (not `default.profraw` in the working
+    /// directory), one file per process. On Darwin in continuous mode (`%c`),
+    /// so a fixture that ends by a signal or `_exit`, skipping the exit
+    /// handlers that write a profile, still leaves its counters.
+    private func profileEnvironment() -> [String] {
+        guard let tests = getenv("LLVM_PROFILE_FILE").map({ String(cString: $0) }),
+            let slash = tests.lastIndex(of: "/")
+        else {
+            return []
+        }
+        #if canImport(Darwin)
+            let mode = "%c"
+        #else
+            let mode = ""
+        #endif
+        return ["LLVM_PROFILE_FILE=\(tests[..<slash])/ServiceFixture-%p\(mode).profraw"]
+    }
 
     // What `posix_spawn` takes its file actions and attributes in: a struct
     // with glibc and musl, a pointer that `init` sets elsewhere (and on

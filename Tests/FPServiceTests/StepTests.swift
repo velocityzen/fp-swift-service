@@ -110,12 +110,20 @@ private let steps: [StepRow] = [
         stage: .graceful
     ),
     StepRow(
-        "serve returning in stage 1 changes no stage",
+        "serve returning in stage 1 changes no stage, and waits for the handlers",
         graceful,
         .served(.success(()), cancelled: false, at: .zero),
         events: [],
-        effect: .none,
+        effect: .awaitHandlers,
         stage: .graceful
+    ),
+    StepRow(
+        "serve returning in stage 2 waits for nothing",
+        cancelling,
+        .served(.success(()), cancelled: false, at: .zero),
+        events: [],
+        effect: .none,
+        stage: .cancelling
     ),
     StepRow(
         "a cancelled serve never begins stage 1",

@@ -68,6 +68,8 @@ final class Blocker: @unchecked Sendable {  // DispatchSemaphore is thread-safe
     private let semaphore = DispatchSemaphore(value: 0)
 
     func block() { semaphore.wait() }
+    /// Blocks until released, or for `limit` at most.
+    func block(atMost limit: DispatchTimeInterval) { _ = semaphore.wait(timeout: .now() + limit) }
     func release() { semaphore.signal() }
 }
 
@@ -123,6 +125,10 @@ enum ServeMode: Sendable {
     /// Registers a shutdown handler that blocks until the blocker is
     /// released; returns only when cancelled.
     case blockInHandler(Blocker)
+    /// Wakes on shutdown before a handler registered after it, which
+    /// blocks until the blocker is released or for half a second; then
+    /// returns while that handler may still run.
+    case returnBeforeHandler(Blocker)
 }
 
 typealias Serve<Resource> = @Sendable (Resource, Shutdown) async -> Result<Void, TestError>
@@ -154,6 +160,16 @@ func serving<Resource>(_ mode: ServeMode, _ log: Recorder) -> Serve<Resource> {
                 await withShutdownHandler(on: shutdown, handler) {
                     log.append("handler registered")
                     await Shutdown().requested  // never requested: returns only when cancelled
+                }
+            case .returnBeforeHandler(let blocker):
+                await withCheckedContinuation { (woken: CheckedContinuation<Void, Never>) in
+                    shutdown.onShutdown { woken.resume() }
+                    shutdown.onShutdown {
+                        log.append("handler")
+                        blocker.block(atMost: .milliseconds(500))
+                        log.append("handler returned")
+                    }
+                    log.append("handlers registered")
                 }
         }
         log.append(Task.isCancelled ? "served: cancelled" : "served")

@@ -4,13 +4,13 @@ What each signal means, what it does by default, and whether to subscribe to it 
 
 ## Overview
 
-A signal's *default action* is what happens when the process has not subscribed to it: the process is terminated, terminated with a core dump, stopped, continued, or the signal is ignored. While a ``processSignals(_:)`` stream lives, the default action is off and the signal arrives in the stream instead. ``signalName(_:)`` gives each one's name.
+A signal's *default action* applies when no stream is subscribed to it: terminate, terminate with a core dump, stop, continue, or ignore. While a ``processSignals(_:)`` stream lives, the signal arrives in the stream instead.
 
-Signal numbers differ between platforms (`SIGUSR1` is 30 on Darwin and 10 on Linux), so always use the constants, never the numbers.
+Signal numbers differ between platforms (`SIGUSR1` is 30 on Darwin, 10 on Linux); use the constants.
 
 ### Stopping a process
 
-These are the signals to list in a shutdown, such as `FPService`'s `shutdownSignals`.
+The signals to list in `FPService`'s `shutdownSignals`.
 
 | Signal | Sent by | Default action | Meaning |
 |---|---|---|---|
@@ -30,7 +30,7 @@ These are the signals to list in a shutdown, such as `FPService`'s `shutdownSign
 
 ### Faults: don't subscribe to these
 
-The kernel sends these to the thread that caused the fault, when it happens. The faulting instruction runs again if the signal is ignored, so subscribing to one doesn't recover the process; it hides the crash or loops on it. Let them crash and report.
+The kernel sends these to the faulting thread. Subscribing doesn't recover the process: the instruction runs again, so it loops or hides the crash.
 
 | Signal | Default action | Meaning |
 |---|---|---|
@@ -77,11 +77,11 @@ The kernel sends these to the thread that caused the fault, when it happens. The
 | `SIGUSR1` | terminate | No fixed meaning: a custom message from another process, such as "dump status" or "rotate logs" |
 | `SIGUSR2` | terminate | The same, a second one |
 
-Because their default action terminates the process, subscribe to them before anyone sends them.
+Their default action terminates the process, so subscribe before anyone sends them.
 
 ### Windows
 
-Windows has no signals to send or catch. A console process gets console control events instead, which ``processSignals(_:)`` delivers as signals; nothing else can be subscribed to there.
+Windows has no signals. ``processSignals(_:)`` delivers a console process's control events as signals; nothing else can be subscribed to.
 
 | Event | Sent by | Delivered as | Default |
 |---|---|---|---|
@@ -91,6 +91,6 @@ Windows has no signals to send or catch. A console process gets console control 
 | `CTRL_LOGOFF_EVENT` | the user logging off | `SIGTERM` | the process ends |
 | `CTRL_SHUTDOWN_EVENT` | the system shutting down; a Windows container stopping | `SIGTERM` | the process ends |
 
-Once a close, logoff or shutdown event has been handled, Windows ends the process anyway, a few seconds later at most. So the event is held until no stream is subscribed to `SIGTERM` any more, which gives cleanup that time.
+Windows ends the process a few seconds after a close, logoff or shutdown event is handled. The event is held while any stream subscribes to `SIGTERM`, which gives cleanup that time.
 
-The Darwin defaults are those of `signal(3)`. The Linux differences noted are from Linux's `signal(7)`, and hold on Android too. The Windows events are those of `SetConsoleCtrlHandler`.
+Sources: Darwin `signal(3)`, Linux `signal(7)` (also Android), Windows `SetConsoleCtrlHandler`.

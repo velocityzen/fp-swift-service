@@ -37,6 +37,9 @@ extension ServiceLifecycle {
         case none
         /// Stage 1 began: start the timeout and request the shutdown.
         case graceful
+        /// `serve` returned during stage 1: dispose waits for the shutdown
+        /// handlers, as it does when `serve` returning begins stage 1.
+        case awaitHandlers
         /// Stage 2 began: cancel the service.
         case cancel
         /// Stage 3: end the process the way this signal ends it.
@@ -99,8 +102,10 @@ extension ServiceLifecycle {
                 serveFailure = error
                 events.append(.failure(.serveFailed(error)))
             }
-            // Cancellation never turns into a graceful request.
-            guard !cancelled else { return Step(events: events) }
+            // Cancellation never turns into a graceful request, and in
+            // stage 2 dispose waits for nothing.
+            guard !cancelled, stage != .cancelling else { return Step(events: events) }
+            guard stage == .running else { return Step(events: events, effect: .awaitHandlers) }
             return beginGraceful(.serveReturned, at: now, after: events)
         }
 

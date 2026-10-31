@@ -1,6 +1,6 @@
 # ``ProcessSignals``
 
-Process signals as an `AsyncStream`, delivered through Dispatch (on Windows, console events). No package dependencies.
+Process signals as an `AsyncStream`, with no package dependencies.
 
 ## Overview
 
@@ -12,18 +12,15 @@ for await signal in await processSignals([SIGTERM, SIGINT]) {
 }
 ```
 
-- **Startup:** ``processSignals(_:)`` returns once every signal is subscribed to, so a signal sent right after the call is not missed. One sent during the call has its previous effect or is delivered; it is never lost.
-- **Left out:** a signal that can't be subscribed to is skipped: a number the platform doesn't have (on Linux and Android, also one the C library keeps for itself), or `SIGKILL` and `SIGSTOP`, which can't be caught. If none is left, the stream is already finished.
-- **Deliveries:** each delivery is one element. Signals sent in the same instant can merge: the kernel keeps only one pending instance of a standard signal (Darwin's kqueue still counts every send).
-- **While the stream lives:** a handler of its own catches the signals, so their default actions can't end the process. Like any handler, it can interrupt a blocking call on a thread that doesn't block the signal; with `SA_RESTART`, most calls resume.
-- **Child processes:** `exec` resets a caught signal to its default action, so a child started with `posix_spawn`, `fork` and `exec`, or `system()` is unaffected. That is why the signals are caught, never set to `SIG_IGN`, which survives `exec`. `SIGCHLD` can be subscribed to as well, and children can still be waited for.
-- **Ending the stream:** cancelling the task that iterates it ends it. That unsubscribes it from the signals; the last subscriber to a signal restores its previous disposition. Breaking out of the loop does not end the stream while it is still referenced.
-- **Sharing:** several streams can subscribe to the same signal at once, and each gets every delivery.
-- **No extra thread:** Dispatch delivers signals without a thread of its own.
-- **Names:** ``signalName(_:)`` gives a signal's conventional name, such as `"SIGTERM"`, or `"signal N"` for an unknown number, matched against the platform's own constants.
-- **Windows:** there are no signals. Ctrl-C, Ctrl-Break, and the console closing, logoff or shutdown arrive as console control events, delivered as `SIGINT`, `SIGBREAK` and `SIGTERM`, the only signals that can be subscribed to there, so `[SIGINT, SIGTERM]` works everywhere. Windows ends the process once a close, logoff or shutdown event is handled, so the handler holds it until no stream is subscribed to `SIGTERM`: the run's dispose gets the time Windows allows. The handler routine runs on a thread Windows starts for each event.
+- **Subscribing:** ``processSignals(_:)`` returns once the signals are subscribed to, so none sent after the call is missed. One sent during the call is delivered or has its previous effect.
+- **Skipped signals:** those that can't be caught (`SIGKILL`, `SIGSTOP`, or numbers the platform lacks or reserves). If none are left, the stream is already finished.
+- **While the stream lives:** the signals' default actions are suspended. The handler can interrupt a blocking call; with `SA_RESTART`, most resume.
+- **Child processes:** the signals are caught, not ignored, so `exec` resets them and children start with the defaults. `SIGCHLD` can be subscribed to, and children can still be waited for.
+- **Ending:** cancelling the iterating task ends the stream; the last stream on a signal restores its previous disposition. Breaking out of the loop doesn't end it.
+- **Sharing:** several streams can share a signal; each gets every delivery. Signals sent at the same instant may merge, except on Darwin.
+- **Windows:** console events arrive as `SIGINT` (Ctrl-C), `SIGBREAK` (Ctrl-Break) and `SIGTERM` (close, logoff, shutdown), the only signals available there. A `SIGTERM` event is held while any stream subscribes to `SIGTERM`, which gives cleanup the few seconds Windows allows.
 
-Which signals to subscribe to, and which to leave alone, is in <doc:SignalReference>. `FPService`'s `Service` uses this library for its `shutdownSignals`.
+``signalName(_:)`` gives a signal's name, such as `"SIGTERM"`. <doc:SignalReference> lists what each signal means and which to subscribe to.
 
 ## Topics
 

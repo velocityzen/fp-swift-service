@@ -45,12 +45,17 @@ struct ServiceLifecycle<Failure: Error>: Sendable {
     /// and requests the shutdown on a thread of its own (see
     /// ``requestOnItsOwnThread(_:)``), so a handler that blocks never holds up
     /// the loop; stage 2 cancels the bracket's task; stage 3 ends the process.
+    ///
+    /// Once `serve` has returned in stage 1, however stage 1 began, dispose
+    /// waits for the shutdown handlers to return, or for stage 2: `mayStop`
+    /// opens on whichever comes first.
     mutating func run(
         _ service: Task<Void, Never>,
         shutdown: Shutdown,
         signals: AsyncStream<Int32>
     ) async {
         let (inbox, timeout, terminate) = (self.inbox, self.timeout, self.terminate)
+        let mayStop = Gate()
         await withTaskGroup(of: Void.self) { helpers in
             helpers.addTask { await forward(signals, to: inbox) }
             for await message in inbox.messages {
@@ -61,10 +66,14 @@ struct ServiceLifecycle<Failure: Error>: Sendable {
                         }
                         helpers.addTask {
                             await requestOnItsOwnThread(shutdown)
-                            message.reply?.resume()
+                            mayStop.open()
                         }
+                        if let reply = message.reply { mayStop.wait { reply.resume() } }
+                    case .awaitHandlers:
+                        if let reply = message.reply { mayStop.wait { reply.resume() } }
                     case .cancel:
                         service.cancel()
+                        mayStop.open()
                         message.reply?.resume()
                     case .kill(let signal):
                         terminate(signal)

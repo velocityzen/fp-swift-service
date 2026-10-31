@@ -19,13 +19,11 @@
 /// }
 /// ```
 ///
-/// The handler runs once, synchronously, where the shutdown is requested.
-/// When the service requests it (a signal, or `serve` returning) that is a
-/// thread of its own, outside the concurrency pool, so a handler that blocks
-/// never keeps a later signal from cancelling the service or ending the
-/// process. Keep it short all the same: the service's call returns only once
-/// it has. If shutdown was already requested, it runs at once, before
-/// `operation`.
+/// The handler runs once, synchronously, where shutdown is requested; for a
+/// ``Service``, on a thread of its own, so a blocking handler can't hold up
+/// later signals. Keep it short: dispose waits for it unless the service is
+/// cancelled first, and the service's call waits for it regardless. If
+/// shutdown was already requested, it runs at once, before `operation`.
 ///
 /// `operation` runs on the caller's actor, so it can use the caller's state:
 /// it need not be `Sendable`.

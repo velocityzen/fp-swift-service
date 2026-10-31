@@ -1,22 +1,24 @@
 # Stopping a Service
 
-The three stages of stopping, and how a service body reacts to them.
+The three stages of stopping, and how a service body responds.
 
 ## Overview
 
 | Stage | Triggered by | What happens |
 |---|---|---|
 | 1. graceful | a signal, or the body returning | ``Shutdown`` is requested; the `shutdownTimeout` clock starts |
-| 2. cancel | a signal during stage 1, the timeout passing, or cancelling the calling task | the service is cancelled; dispose still runs |
-| 3. kill | a signal during stage 2 | the signal's default action is restored and the signal re-sent; the process ends (with exit status 128 + the signal, if that action would leave it running). On Windows it exits with `STATUS_CONTROL_C_EXIT`, as Ctrl-C ends a process |
+| 2. cancel | a signal during stage 1, the timeout, or cancelling the calling task | the service is cancelled; dispose still runs |
+| 3. kill | a signal during stage 2 | the process ends as the signal ends it (exit status 128 + the signal if its default action wouldn't); on Windows, with `STATUS_CONTROL_C_EXIT` |
 
-Each signal from `shutdownSignals` moves the stop one stage forward. The signals are subscribed to before acquire and unsubscribed from after dispose, so they can never kill the process mid-cleanup by accident. In stage 2 dispose runs in a cancelled task; cleanup that must finish anyway uses fp-swift-bracket's `BracketAsync(acquire:uncancellableDispose:)`. There is no hard deadline after that: a dispose that ignores cancellation is waited for until it returns, or until one more signal ends the process. Service managers bound it from outside, sending `SIGKILL` after their own grace period.
+Each signal from `shutdownSignals` advances one stage. The signals are held from before acquire until after dispose, so they can't end the process mid-cleanup.
 
-The ``ServiceOutcome`` records how it went: ``ServiceOutcome/shutdownReason`` says why stage 1 began, and ``ServiceOutcome/cancellationReason`` why stage 2 happened, if it did. A stop that outlasts `shutdownTimeout` returns ``ServiceError/shutdownTimeout(after:serve:stop:)``, which also carries any `serve` or dispose failure.
+In stage 2, dispose runs in a cancelled task; use fp-swift-bracket's `BracketAsync(acquire:uncancellableDispose:)` for cleanup that must finish. A dispose that ignores cancellation is awaited until it returns or another signal ends the process.
 
-### Cancel the work on shutdown
+``ServiceOutcome/shutdownReason`` and ``ServiceOutcome/cancellationReason`` record why each stage began. A stop that outlasts `shutdownTimeout` fails with ``ServiceError/shutdownTimeout(after:serve:stop:)``.
 
-A body that runs until it is told to stop gets ``Shutdown`` as its second argument, which the run requests when stage 1 begins. The body still stops by returning. The simplest way to react is ``withCancellation(on:_:)``: it runs the work and returns its result, and if shutdown is requested first, it cancels the work and waits for it to return (`swift run Example requests`).
+### Cancel the work
+
+``withCancellation(on:_:)`` runs the work and returns its result, cancelling it if shutdown is requested first (`swift run Example requests`).
 
 <!-- example: requests -->
 ```swift
@@ -50,9 +52,9 @@ let withService = Service(
 let result = await withService(handleRequests)
 ```
 
-### Let the work drain
+### Drain the work
 
-Cancelling cuts off whatever is in flight. When the work has its own graceful-stop API, call that on shutdown instead with ``withShutdownHandler(on:_:operation:)``, and let the work finish by itself (`swift run Example drain`). Here the server stands in for such a library:
+When the work has its own graceful stop, call it from a handler with ``withShutdownHandler(on:_:operation:)`` (`swift run Example drain`). The handler is removed when the operation ends. Dispose waits for running handlers unless the service is cancelled first.
 
 <!-- example: server -->
 ```swift
@@ -108,8 +110,8 @@ let withService = Service(
 let result = await withService(drainRequests)
 ```
 
-If the work runs on its own after acquire (its own event loop), its graceful stop belongs in dispose instead, with the default body: dispose runs after the body returns, so a resource drains and closes there without ever seeing ``Shutdown``.
+Work that runs on its own after acquire can drain in its dispose instead, with the default body.
 
 ### Read it directly
 
-For anything else, ``Shutdown/isRequested`` and ``Shutdown/requested`` read the request directly. To test a body on its own, make a ``Shutdown`` and call ``Shutdown/request()`` on it.
+``Shutdown/isRequested`` and ``Shutdown/requested`` read the request. To test a body on its own, pass it a ``Shutdown`` and call ``Shutdown/request()``.

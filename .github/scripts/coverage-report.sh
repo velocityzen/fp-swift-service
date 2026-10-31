@@ -5,8 +5,8 @@
 # ran, to the log and to the job summary under "Coverage: <label>". No
 # threshold.
 #
-# The test code is in `<name>.xctest` with the native build system (Swift
-# 6.3). With swift-build (6.4) a test product is a thin `<name>-test-runner`
+# The test code is in `<name>.xctest` with the native build system. With
+# swift-build (6.4, on Linux) a test product is a thin `<name>-test-runner`
 # launcher and a `<name>.so` beside it, and the code, so its coverage, is in
 # the `.so`.
 set -euo pipefail
