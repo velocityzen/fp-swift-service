@@ -7,40 +7,48 @@
 set -euo pipefail
 device=$1
 
-# A fresh runner may still be copying, mounting or deleting runtime disk images (seen on xcode-27: watchOS images "Copying" and "Deleting" beside a "Ready" one); a simulator on a runtime in flux doesn't boot. Waits for every image to settle, 15 minutes at most.
-for _ in $(seq 90); do
-    unsettled="$(xcrun simctl runtime list | grep -E '\((Copying|Deleting|Mounting|Staging|Verifying|Processing)\)' || true)"
-    [ -z "$unsettled" ] && break
-    echo "Waiting for runtime disk images to settle:"
-    echo "$unsettled"
-    sleep 10
-done
+# Whether some runtime disk image is still being copied, mounted or deleted.
+unsettled() {
+    xcrun simctl runtime list | grep -E '\((Copying|Deleting|Mounting|Staging|Verifying|Processing)\)'
+}
 
-# `-showdestinations` lists the simulators this Xcode can test on, each with
-# its architecture and OS. `simctl` also lists devices it can't, such as a
-# watch model the selected Xcode has no architecture for.
-candidates="$(xcodebuild -showdestinations -scheme fp-swift-service-Package 2>/dev/null |
-    sed '/Ineligible destinations/,$d' |
-    grep -E "platform:[A-Za-z]+ Simulator, arch:arm64, id:[0-9A-F-]+, OS:[0-9.]+, name:[^}]*$device" || true)"
+# Boots the first simulator named like `device` that Xcode can test on, and prints its id. `-showdestinations` lists the simulators this Xcode can test on, each with its architecture and OS; `simctl` also lists devices it can't, such as a watch model the selected Xcode has no architecture for. Even a listed one can have a runtime that isn't loaded: Xcode then sees "watchOS Simulator (null)" and runs nothing. Booting loads it, or fails.
+boot() {
+    local line id booted
+    xcodebuild -showdestinations -scheme fp-swift-service-Package 2>/dev/null |
+        sed '/Ineligible destinations/,$d' |
+        grep -E "platform:[A-Za-z]+ Simulator, arch:arm64, id:[0-9A-F-]+, OS:[0-9.]+, name:[^}]*$device" |
+        while IFS= read -r line; do
+            id="$(echo "$line" | grep -oE '[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}')"
+            if booted="$(xcrun simctl bootstatus "$id" -b 2>&1)"; then
+                echo "Simulator: $line" >&2
+                echo "$id"
+                return
+            fi
+            echo "Could not boot: $line" >&2
+            echo "$booted" | tail -3 >&2
+        done
+}
 
-# Even a listed one can have a runtime the image registered but never
-# loaded: Xcode then sees "watchOS Simulator (null)" and runs nothing.
-# Booting loads it, or fails, so the first simulator that boots is used.
+# The xcode-27 image can have a watchOS runtime Xcode can't use: asking for destinations then starts a repair, a new image "Copying" and the old one "Deleting", and until it is done no watch boots. So each try waits for the images to settle first, for 20 minutes in all.
 udid=""
-while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    id="$(echo "$line" | grep -oE '[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}')"
-    if booted="$(xcrun simctl bootstatus "$id" -b 2>&1)"; then
-        udid=$id
-        echo "Simulator: $line"
-        break
+deadline=$((SECONDS + 1200))
+while [ -z "$udid" ] && [ "$SECONDS" -lt "$deadline" ]; do
+    while [ "$SECONDS" -lt "$deadline" ] && images="$(unsettled)"; do
+        echo "Waiting for runtime disk images to settle:"
+        echo "$images"
+        sleep 15
+    done
+    udid="$(boot || true)"
+    if [ -z "$udid" ] && [ "$SECONDS" -lt "$deadline" ]; then
+        echo "No simulator named like \"$device\" booted; trying again."
+        sleep 15
     fi
-    echo "Could not boot: $line"
-    echo "$booted" | tail -3
-done <<<"$candidates"
+done
 if [ -z "$udid" ]; then
     echo "::error::No simulator named like \"$device\" that Xcode can test on and that boots:"
     xcrun simctl list devices available
+    xcrun simctl list runtimes
     xcrun simctl runtime list
     exit 1
 fi
