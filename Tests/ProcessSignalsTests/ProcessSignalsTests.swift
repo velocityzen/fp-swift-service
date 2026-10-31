@@ -11,6 +11,7 @@
 #endif
 import ProcessSignals
 import ServiceTestSupport
+import Synchronization
 import Testing
 
 #if os(Windows)
@@ -146,6 +147,34 @@ struct ProcessSignalsTests {
         #expect(disposition(testSignal) == original)
     }
 }
+
+#if !os(Windows)
+    extension ProcessSignalsTests {
+        /// On Darwin a thread takes a signal after kqueue has recorded it;
+        /// a disposition restored in between gave a delivered signal its
+        /// previous effect too, and as `SIG_DFL` ended the process.
+        @Test("a delivered signal doesn't also have its previous effect")
+        func deliveredOnce() async {
+            var counting = sigaction()
+            counting.handler = { _ in previousEffects.add(1, ordering: .relaxed) }
+            sigemptyset(&counting.sa_mask)
+            var original = sigaction()
+            sigaction(testSignal, &counting, &original)
+            defer { sigaction(testSignal, &original, nil) }
+            previousEffects.store(0, ordering: .relaxed)
+
+            for _ in 0..<100 {
+                var signals = await processSignals([testSignal]).makeAsyncIterator()
+                send(testSignal)
+                _ = await signals.next()
+            }
+            #expect(previousEffects.load(ordering: .relaxed) == 0)
+        }
+    }
+
+    /// How many times `deliveredOnce`'s own handler ran.
+    private let previousEffects = Atomic<Int>(0)
+#endif
 
 /// Subscribes to `testSignal` and reports `"<name> ready"`, then
 /// `"<name> got"` for each delivery, until cancelled.
