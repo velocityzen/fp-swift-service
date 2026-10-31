@@ -27,10 +27,12 @@ import Testing
 struct ProcessSignalsTests {
     @Test("delivers each signal")
     func delivers() async throws {
+        let original = disposition(testSignal)
         let stream = await processSignals([otherSignal, testSignal])
         send(otherSignal)
         send(testSignal)
         #expect(try await collect(2, from: stream).sorted() == [otherSignal, testSignal].sorted())
+        #expect(disposition(testSignal) == original)  // `collect` ended the stream
     }
 
     #if canImport(Darwin)
@@ -201,26 +203,32 @@ func send(_ signal: Int32) {
 
 /// The first `count` elements (fewer if the stream ends), or a failure
 /// instead of a hang if they never arrive.
+///
+/// Ends the stream before it returns, by cancelling the task reading it, so
+/// the next test finds the signals' dispositions restored. Breaking out
+/// would leave the stream to end when it is released, and on Linux the
+/// reading task's last reference to it can go after this has returned.
 func collect(
     _ count: Int,
     from stream: AsyncStream<Int32>,
     within limit: Duration = hangLimit
 ) async throws -> [Int32] {
-    try await withThrowingTaskGroup(of: [Int32]?.self) { group in
+    let (results, result) = AsyncStream<[Int32]>.makeStream()
+    return try await withThrowingTaskGroup(of: Void.self) { group in
         group.addTask {
             var collected: [Int32] = []
-            for await signal in stream {
+            for await signal in stream {  // until cancelled
                 collected.append(signal)
-                if collected.count == count { break }
+                if collected.count == count { result.yield(collected) }
             }
-            return collected
+            result.yield(collected)  // the stream ended first
         }
         group.addTask {
             try? await Task.sleep(for: limit)
-            return nil
+            result.finish()
         }
         defer { group.cancelAll() }
-        guard let first = try await group.next(), let collected = first else {
+        guard let collected = await results.first(where: { _ in true }) else {
             throw DeadlineExceeded()
         }
         return collected

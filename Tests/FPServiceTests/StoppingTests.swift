@@ -300,7 +300,7 @@ extension StoppingTests {
         let log = harness.log
         let result = try await run(
             harness,
-            serve: .returnBeforeHandler(blocker),
+            serve: .returnBeforeHandler(blocker, served: Blocker()),
             waitingFor: ["handlers registered"],
             then: { harness.send(SIGTERM) },
             service: {

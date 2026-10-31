@@ -1,6 +1,7 @@
 import Dispatch
 import FPBracket
 @testable import FPService
+import ServiceTestSupport
 import Synchronization
 
 enum TestError: Error, Equatable {
@@ -69,7 +70,11 @@ final class Blocker: @unchecked Sendable {  // DispatchSemaphore is thread-safe
 
     func block() { semaphore.wait() }
     /// Blocks until released, or for `limit` at most.
-    func block(atMost limit: DispatchTimeInterval) { _ = semaphore.wait(timeout: .now() + limit) }
+    func block(atMost limit: Duration) {
+        let (seconds, attoseconds) = limit.components
+        let nanoseconds = Int(seconds) * 1_000_000_000 + Int(attoseconds / 1_000_000_000)
+        _ = semaphore.wait(timeout: .now() + .nanoseconds(nanoseconds))
+    }
     func release() { semaphore.signal() }
 }
 
@@ -125,10 +130,10 @@ enum ServeMode: Sendable {
     /// Registers a shutdown handler that blocks until the blocker is
     /// released; returns only when cancelled.
     case blockInHandler(Blocker)
-    /// Wakes on shutdown before a handler registered after it, which
-    /// blocks until the blocker is released or for half a second; then
-    /// returns while that handler may still run.
-    case returnBeforeHandler(Blocker)
+    /// Wakes on shutdown before a handler registered after it, and returns
+    /// while that handler still runs: the handler waits for `served`, then
+    /// blocks until `blocker` is released or for half a second.
+    case returnBeforeHandler(Blocker, served: Blocker)
 }
 
 typealias Serve<Resource> = @Sendable (Resource, Shutdown) async -> Result<Void, TestError>
@@ -161,16 +166,20 @@ func serving<Resource>(_ mode: ServeMode, _ log: Recorder) -> Serve<Resource> {
                     log.append("handler registered")
                     await Shutdown().requested  // never requested: returns only when cancelled
                 }
-            case .returnBeforeHandler(let blocker):
+            case .returnBeforeHandler(let blocker, let served):
                 await withCheckedContinuation { (woken: CheckedContinuation<Void, Never>) in
                     shutdown.onShutdown { woken.resume() }
                     shutdown.onShutdown {
                         log.append("handler")
+                        served.block(atMost: hangLimit)  // serve may wait long for a thread
                         blocker.block(atMost: .milliseconds(500))
                         log.append("handler returned")
                     }
                     log.append("handlers registered")
                 }
+                log.append("served")
+                served.release()
+                return .success(())
         }
         log.append(Task.isCancelled ? "served: cancelled" : "served")
         log.append("shutdown requested: \(shutdown.isRequested)")
