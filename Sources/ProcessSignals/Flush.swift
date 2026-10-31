@@ -16,12 +16,19 @@ import Synchronization
 /// Flushes every output stream (`fflush(nil)`) on a thread of its own, and
 /// waits at most `limit` for it: a flush stuck on a stalled stream is left
 /// behind. The deadline is on the monotonic clock, so sleeps that overrun
-/// on a busy machine don't stretch it.
+/// on a busy machine don't stretch it. A failed flush is ignored: the
+/// process is about to end, and there is nothing to retry and nowhere to
+/// report it.
 func flushOutput(within limit: Duration) {
-    let flush = Flush()
-    DispatchQueue(label: "ProcessSignals.flush").async { flush.run() }
+    let done = Atomic(false)
+
+    DispatchQueue(label: "ProcessSignals.flush").async {
+        fflush(nil)
+        done.store(true, ordering: .releasing)
+    }
+
     let deadline = ContinuousClock.now + limit
-    while !flush.isDone, ContinuousClock.now < deadline {
+    while !done.load(ordering: .acquiring), ContinuousClock.now < deadline {
         sleepAMillisecond()
     }
 }
@@ -35,16 +42,4 @@ private func sleepAMillisecond() {
         tick.tv_nsec = 1_000_000
         nanosleep(&tick, nil)
     #endif
-}
-
-/// One flush of every output stream, and whether it has returned.
-private final class Flush: Sendable {
-    private let done = Atomic(false)
-
-    var isDone: Bool { done.load(ordering: .acquiring) }
-
-    func run() {
-        fflush(nil)
-        done.store(true, ordering: .releasing)
-    }
 }

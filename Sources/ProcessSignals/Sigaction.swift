@@ -72,8 +72,11 @@
             action.handler = SIG_DFL
             sigaction(signal, &action, nil)
         }
+
         flushOutput(within: .milliseconds(500))
-        guard !survivable else { _exit(128 + signal) }
+        guard !survivable else {
+            _exit(128 + signal)
+        }
 
         var unblock = sigset_t()
         sigemptyset(&unblock)
