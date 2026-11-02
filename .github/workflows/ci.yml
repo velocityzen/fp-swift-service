@@ -209,9 +209,14 @@ jobs:
       - name: Show Swift version
         run: swift --version
 
+      # The swift image removes curl once its toolchain is in, and
+      # install-swift-sdk.sh downloads with it.
+      - name: Install curl
+        run: apt-get -q update && apt-get -q install -y curl
+
       - name: Install the Static Linux SDK
         run: |
-          swift sdk install "$STATIC_SDK_URL" --checksum "$STATIC_SDK_SHA256"
+          .github/scripts/install-swift-sdk.sh "$STATIC_SDK_URL" "$STATIC_SDK_SHA256"
           swift sdk list
 
       - name: Resolve dependencies
@@ -266,7 +271,8 @@ jobs:
       # headers Swift imports differently), so both are pointed at it too.
       - name: Install the Swift SDK for Android
         run: |
-          swift sdk install "$ANDROID_SDK_URL" --checksum "$ANDROID_SDK_SHA256" --swift-sdks-path "$RUNNER_TEMP/swift-sdks"
+          .github/scripts/install-swift-sdk.sh "$ANDROID_SDK_URL" "$ANDROID_SDK_SHA256" \
+            --swift-sdks-path "$RUNNER_TEMP/swift-sdks"
           ndk="$(ls -d "$ANDROID_HOME/ndk/$ANDROID_NDK_MAJOR".* | tail -n 1)"
           ANDROID_NDK_HOME="$ndk" "$RUNNER_TEMP/swift-sdks/$ANDROID_SDK_ID.artifactbundle/swift-android/scripts/setup-android-sdk.sh"
           echo "ANDROID_NDK_ROOT=$ndk" >> "$GITHUB_ENV"
