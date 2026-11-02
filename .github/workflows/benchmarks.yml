@@ -1,0 +1,112 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# The job only reads the repository; it needs no write token.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Benchmarks/README.md describes the suites and how to run them locally.
+jobs:
+  compare:
+    name: Compare benchmarks
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # The commit to compare with is benchmarked too, so fetch history.
+          fetch-depth: 0
+
+      - name: Set up Swift
+        uses: ./.github/actions/setup-swift
+        with:
+          swift-version: "6.4"
+
+      # A pull request is compared with its base branch, a push with the
+      # commit it was pushed on top of. There is nothing to compare with when
+      # that commit is unknown (a new branch, a force push) or predates these
+      # benchmarks.
+      - name: Find the commit to compare with
+        id: commits
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if [ -n "$BASE_SHA" ] && git show "$BASE_SHA:Benchmarks/Package.swift" 2>/dev/null | grep -q "ordo-one/benchmark"; then
+            echo "base=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          else
+            echo "No benchmarks at the base commit to compare with." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Benchmark the base commit
+        if: steps.commits.outputs.base != ''
+        working-directory: Benchmarks
+        env:
+          BASE: ${{ steps.commits.outputs.base }}
+          HEAD: ${{ steps.commits.outputs.head }}
+        run: |
+          git checkout --quiet --force --detach "$BASE"
+          swift package --allow-writing-to-package-directory benchmark baseline update base --no-progress --quiet
+          git checkout --quiet --force --detach "$HEAD"
+
+      - name: Benchmark this commit
+        working-directory: Benchmarks
+        run: |
+          swift package --allow-writing-to-package-directory benchmark baseline update head --no-progress --quiet
+
+      - name: Report results
+        if: steps.commits.outputs.base == ''
+        working-directory: Benchmarks
+        run: |
+          swift package benchmark baseline read head --format markdown --no-progress >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report changes
+        if: steps.commits.outputs.base != ''
+        working-directory: Benchmarks
+        run: |
+          {
+            echo "<details><summary>Every metric, base commit vs this commit</summary>"
+            echo
+            swift package benchmark baseline compare base head --format markdown --no-progress
+            echo
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Fails only on the metrics the benchmarks give thresholds to: malloc,
+      # object-allocation, retain and release counts. Times on a shared
+      # runner are too noisy to fail on and are only reported above. The
+      # thresholds come from the base commit's baseline, so a change to them
+      # applies from the commit after it.
+      - name: Check for allocation and ARC regressions
+        if: steps.commits.outputs.base != ''
+        working-directory: Benchmarks
+        run: |
+          echo "## Allocation and ARC count changes" >> "$GITHUB_STEP_SUMMARY"
+          status=0
+          swift package benchmark baseline check base head --format markdown --no-progress \
+              > "$RUNNER_TEMP/check.md" 2> "$RUNNER_TEMP/check.err" || status=$?
+          cat "$RUNNER_TEMP/check.md" >> "$GITHUB_STEP_SUMMARY"
+          # The counts that crossed a threshold go to the log too, so a
+          # failure reads without opening the summary.
+          cat "$RUNNER_TEMP/check.md"
+          if [ "$status" -eq 0 ]; then
+            exit 0
+          fi
+          cat "$RUNNER_TEMP/check.err" >&2
+          # SwiftPM reports every plugin failure as exit status 1, so tell an
+          # improvement, which passes, from a regression or an error by the
+          # error the plugin names.
+          if grep -q "benchmarkThresholdImprovement" "$RUNNER_TEMP/check.err"; then
+            exit 0
+          fi
+          exit 1

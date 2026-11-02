@@ -48,7 +48,7 @@ jobs:
           swiftlint --version
 
       - name: swift-format (lint mode, strict)
-        run: swift format lint --recursive --strict --configuration .swift-format Sources Tests
+        run: swift format lint --recursive --strict --configuration .swift-format Sources Tests Benchmarks/Sources Benchmarks/Benchmarks
 
       - name: SwiftLint (strict)
         run: swiftlint --strict

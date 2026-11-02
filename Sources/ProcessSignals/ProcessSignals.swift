@@ -54,12 +54,8 @@ package typealias Signals = (stream: AsyncStream<Int32>, signals: [Int32], unava
 /// which it could not.
 package func registerSignals(_ signals: [Int32]) async -> Signals {
     let (stream, continuation) = AsyncStream<Int32>.makeStream()
-    let requested = signals.reduce(into: [Int32]()) { requested, signal in
-        if !requested.contains(signal) {
-            requested.append(signal)
-        }
-    }
-    let available = requested.filter(canRegisterSignal)
+    let requested = signals.withoutRepeats()
+    let available = requested.keeping(canRegisterSignal)
 
     // Nothing to wait for: end at once instead of never.
     guard !available.isEmpty else {
@@ -74,26 +70,33 @@ package func registerSignals(_ signals: [Int32]) async -> Signals {
 }
 
 #if !os(Windows)
-    /// Whether `signal` can be subscribed to. `sigaction` is asked rather than
-    /// a range checked: it rejects the numbers this platform doesn't have, and
-    /// with glibc and musl the ones the C library keeps for itself. (Given one
-    /// of those, Darwin's Dispatch would end the process.) SIGKILL and SIGSTOP
-    /// it accepts for reading, but they can never be caught or ignored.
+    /// Whether `signal` can be subscribed to. Except on Darwin, `sigaction` is
+    /// asked rather than a range checked: it rejects the numbers this
+    /// platform doesn't have, and with glibc and musl the ones the C library
+    /// keeps for itself. SIGKILL and SIGSTOP it accepts for reading, but they
+    /// can never be caught or ignored.
     func canRegisterSignal(_ signal: Int32) -> Bool {
         guard signal != SIGKILL, signal != SIGSTOP else {
             return false
         }
-        #if canImport(Android)
-            // Bionic's `sigaction` doesn't reject the real-time signals it
-            // keeps for itself (timers, debuggerd, profilers): the first
-            // ones, below SIGRTMIN.
-            guard !(__SIGRTMIN..<__libc_current_sigrtmin()).contains(signal) else {
-                return false
-            }
-        #endif
+        #if canImport(Darwin)
+            // Darwin has signals 1 to 31 and keeps none for itself, so the
+            // range is exact, and spares a system call. (Given any other
+            // number, Dispatch would end the process.)
+            return (1..<NSIG).contains(signal)
+        #else
+            #if canImport(Android)
+                // Bionic's `sigaction` doesn't reject the real-time signals
+                // it keeps for itself (timers, debuggerd, profilers): the
+                // first ones, below SIGRTMIN.
+                guard !(__SIGRTMIN..<__libc_current_sigrtmin()).contains(signal) else {
+                    return false
+                }
+            #endif
 
-        var current = sigaction()
-        return sigaction(signal, nil, &current) == 0
+            var current = sigaction()
+            return sigaction(signal, nil, &current) == 0
+        #endif
     }
 #endif
 
@@ -130,5 +133,32 @@ func removeSubscriber(from signal: Int32) {
             subscribers[signal] = nil
             state.previous.restore()
         }
+    }
+}
+
+// Both return the array itself when there is nothing to drop, the usual case,
+// so a subscription copies no signal list.
+
+extension Array where Element: Equatable {
+    /// The elements without repeats, each where it first appears.
+    func withoutRepeats() -> [Element] {
+        guard indices.contains(where: { self[..<$0].contains(self[$0]) }) else {
+            return self
+        }
+        return reduce(into: []) { kept, element in
+            if !kept.contains(element) {
+                kept.append(element)
+            }
+        }
+    }
+}
+
+extension Array {
+    /// The elements that satisfy `isIncluded`, in order.
+    func keeping(_ isIncluded: (Element) -> Bool) -> [Element] {
+        guard let dropped = firstIndex(where: { !isIncluded($0) }) else {
+            return self
+        }
+        return self[..<dropped] + self[(dropped + 1)...].filter(isIncluded)
     }
 }

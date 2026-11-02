@@ -64,6 +64,27 @@ struct GateTests {
         #expect(returned.isOpen)
     }
 
+    @Test("opening in place leaves a gate a callback waits for, and opens one only tasks wait for")
+    func openUnlessCallbacks() async throws {
+        let withCallback = Gate()
+        let id = withCallback.wait {}
+        #expect(!withCallback.openUnlessCallbacks())
+        #expect(!withCallback.isOpen)
+        withCallback.remove(try #require(id))
+        #expect(withCallback.openUnlessCallbacks())
+        #expect(withCallback.isOpen)
+        #expect(withCallback.openUnlessCallbacks())  // already open
+
+        let withTask = Gate()
+        try await withDeadline {
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await withTask.openedOrCancelled }
+                group.addTask { #expect(withTask.openUnlessCallbacks()) }
+            }
+        }
+        #expect(withTask.isOpen)
+    }
+
     @Test("opening and cancelling race without losing or doubling a wake-up")
     func race() async throws {
         try await withDeadline {

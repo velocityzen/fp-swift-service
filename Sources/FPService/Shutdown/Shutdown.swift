@@ -19,7 +19,7 @@
 /// if case .failure(let error) = await result { Issue.record("\(error)") }
 /// ```
 public final class Shutdown: Sendable {
-    let gate = Gate()
+    @usableFromInline let gate = Gate()
 
     /// A shutdown not yet requested.
     public init() {}
@@ -35,8 +35,9 @@ public final class Shutdown: Sendable {
         get async { await gate.openedOrCancelled }
     }
 
-    /// Requests graceful shutdown: runs every handler and wakes every waiter,
-    /// once; later calls do nothing. Returns whether this call was the first.
+    /// Requests graceful shutdown: wakes every waiter, then runs every
+    /// handler, once; later calls do nothing. Returns whether this call was
+    /// the first.
     @discardableResult
     public func request() -> Bool { gate.open() }
 }

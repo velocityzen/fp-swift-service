@@ -327,3 +327,13 @@ for await signal in await processSignals([SIGTERM, SIGINT]) {
 - On Windows, console events arrive as `SIGINT` (Ctrl-C), `SIGBREAK` (Ctrl-Break) and `SIGTERM` (close, logoff, shutdown). A `SIGTERM` event is held while any stream subscribes to `SIGTERM`, which gives dispose the few seconds Windows allows.
 
 The [Signal Reference](https://swiftpackageindex.com/velocityzen/fp-swift-service/documentation/processsignals/signalreference) lists what each signal means and which to subscribe to.
+
+## Benchmarks
+
+Benchmarks live in `Benchmarks/`, a separate package, so library consumers never resolve it. Each API runs next to a hand-written baseline doing the same job, and every value is per call: time, instructions, allocations, and retains and releases. Run them from that directory:
+
+```sh
+swift package benchmark
+```
+
+CI benchmarks every push to `main` against the commit it was pushed on top of, and every pull request against its base, and fails when an allocation or ARC count regresses. See [Benchmarks/README.md](Benchmarks/README.md).

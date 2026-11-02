@@ -9,9 +9,9 @@ let package = Package(
         .library(name: "ProcessSignals", targets: ["ProcessSignals"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
-        .package(url: "https://github.com/velocityzen/fp-swift", from: "4.0.0"),
-        .package(url: "https://github.com/velocityzen/fp-swift-bracket", from: "2.0.0"),
+        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.8.2"),
+        .package(url: "https://github.com/velocityzen/fp-swift", from: "4.2.1"),
+        .package(url: "https://github.com/velocityzen/fp-swift-bracket", from: "2.1.0"),
     ],
     targets: [
         // The core: FPBracket (which brings FP) and ProcessSignals. No Foundation.

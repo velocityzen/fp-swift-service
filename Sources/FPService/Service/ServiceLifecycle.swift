@@ -45,9 +45,11 @@ struct ServiceLifecycle<Failure: Error>: Sendable {
     /// next to this one, and `shutdown` the one its `serve` was handed.
     ///
     /// The loop carries out each effect itself. Stage 1 starts the timeout
-    /// and requests the shutdown on a thread of its own (see
-    /// ``onItsOwnThread(_:)``), so a handler that blocks never holds up
-    /// the loop; stage 2 cancels the bracket's task; stage 3 ends the process.
+    /// and requests the shutdown. If a handler is registered, the request
+    /// runs on a thread of its own (see ``onItsOwnThread(_:)``), so a
+    /// handler that blocks never holds up the loop; with only tasks waiting
+    /// it runs here, since resuming them can't block. Stage 2 cancels the
+    /// bracket's task; stage 3 ends the process.
     ///
     /// Once `serve` has returned in stage 1, however stage 1 began, dispose
     /// waits for the shutdown handlers to return, or for stage 2: `mayStop`
@@ -69,9 +71,15 @@ struct ServiceLifecycle<Failure: Error>: Sendable {
                         if let timeout {
                             helpers.addTask { await cancel(after: timeout, inbox) }
                         }
-                        helpers.addTask {
-                            await offload { shutdown.request() }
+                        // With no handler registered, the request only
+                        // resumes waiting tasks, which can't block.
+                        if shutdown.gate.openUnlessCallbacks() {
                             mayStop.open()
+                        } else {
+                            helpers.addTask {
+                                await offload { shutdown.request() }
+                                mayStop.open()
+                            }
                         }
                         if let reply = message.reply { mayStop.wait { reply.resume() } }
                     case .awaitHandlers:
