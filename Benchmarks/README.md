@@ -63,7 +63,7 @@ Baselines are saved in `.benchmarkBaselines/`, which is not committed: they are 
 
 Malloc, object-allocation and ARC counts are the same on every run of the same code, so they are the numbers to watch first. Times move with the machine's load; close other work before comparing them.
 
-`baseline check` fails only when one of those four counts gets worse by more than 5% at the median; times and the other metrics are reported by `compare` but never fail a check. The tolerance is `checkedTolerance` in [BenchmarkSupport.swift](Sources/BenchmarkSupport/BenchmarkSupport.swift).
+`baseline check` fails only when one of those four counts gets worse by half a call or more at the median; times and the other metrics are reported by `compare` but never fail a check. It compares and prints raw samples, not per-call values: each sample is the total of 1,000 calls plus a few allocations and retains of the benchmark harness, which move between runs. So `base 1`, `head 2` is one object allocation more in 1,000 calls, which passes, while one more per call is 1,000 more. A benchmark at `scaling: .one` has one call per sample, so its counts may move by 5% instead. The allowances are `checkedCallShare` and `checkedTolerance` in [BenchmarkSupport.swift](Sources/BenchmarkSupport/BenchmarkSupport.swift).
 
 ```bash
 swift package benchmark baseline check main

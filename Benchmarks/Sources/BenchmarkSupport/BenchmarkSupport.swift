@@ -26,26 +26,36 @@ public let checkedMetrics: [BenchmarkMetric] = [
     .releaseCount,
 ]
 
-/// How far, in percent, a checked metric's median may move before
-/// `baseline check` reports it.
-///
-/// Every benchmark here allocates and retains the same way on every call, so
-/// two runs of the same code agree exactly, `Service` runs and their tasks
-/// included. The calls a service makes per request (`Shutdown` and its
-/// helpers) count 20 or fewer of each, so one allocation or retain more is
-/// at least 5%. A whole `Service` run counts 50 to 75 allocations and up to
-/// about 210 releases, where 5% is three or more allocations, or several
-/// retains; a run happens once per process.
+// Every benchmark here allocates and retains the same way on every call, so
+// two runs of the same code agree exactly per call, `Service` runs and their
+// tasks included, and one allocation or retain more per call is a
+// regression. `baseline check` compares raw samples, though, each the total
+// of `scaling` calls plus a few allocations and retains of the benchmark
+// harness around them, and those few move from run to run: a signal
+// delivery allocates no object, yet its samples count one or two. On counts
+// near zero any percentage fails on that.
+
+/// How far a checked count's median may move, as a share of one call,
+/// before `baseline check` reports it. In a sample of 1,000 calls half a
+/// call is hundreds of times the harness's few, and half of one more
+/// allocation or retain per call.
+let checkedCallShare = 0.5
+
+/// How far, in percent, a checked count's median may move before
+/// `baseline check` reports it at `scaling: .one`, where a sample is a
+/// single call and cannot tell the harness's few from the call's own. A
+/// `Service` run counts 50 to 75 allocations and up to about 210 releases,
+/// where 5% is three or more.
 let checkedTolerance = 5.0
 
-func serviceThresholds() -> [BenchmarkMetric: BenchmarkThresholds] {
-    Dictionary(
+func serviceThresholds(scaling: BenchmarkScalingFactor) -> [BenchmarkMetric: BenchmarkThresholds] {
+    let checked =
+        scaling == .one
+        ? BenchmarkThresholds(relative: [.p50: checkedTolerance])
+        : BenchmarkThresholds(absolute: [.p50: Int(checkedCallShare * Double(scaling.rawValue))])
+    return Dictionary(
         uniqueKeysWithValues: serviceMetrics.map { metric in
-            let thresholds =
-                checkedMetrics.contains(metric)
-                ? BenchmarkThresholds(relative: [.p50: checkedTolerance])
-                : BenchmarkThresholds()
-            return (metric, thresholds)
+            (metric, checkedMetrics.contains(metric) ? checked : BenchmarkThresholds())
         }
     )
 }
@@ -69,7 +79,7 @@ public extension Benchmark.Configuration {
             scalingFactor: scaling,
             maxDuration: .seconds(1),
             maxIterations: 10_000,
-            thresholds: serviceThresholds()
+            thresholds: serviceThresholds(scaling: scaling)
         )
     }
 }
