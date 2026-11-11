@@ -136,6 +136,13 @@ func removeSubscriber(from signal: Int32) {
     }
 }
 
+/// How many streams are subscribed to `signal`. For tests, next to the signal's handler: a stream
+/// that outlived its test still counts here, while a disposition that was not restored shows with
+/// none.
+package func subscriberCount(of signal: Int32) -> Int {
+    subscribers.withLock { $0[signal]?.count ?? 0 }
+}
+
 // Both return the array itself when there is nothing to drop, the usual case,
 // so a subscription copies no signal list.
 

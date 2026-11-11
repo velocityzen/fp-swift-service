@@ -26,6 +26,23 @@ import Testing
 /// time.
 @Suite("processSignals", .serialized, .timeLimit(.minutes(1)))
 struct ProcessSignalsTests {
+    /// Before each test: the tests before it must have left the signals as the first one found
+    /// them, with no stream still subscribed. A test that finds otherwise fails here, saying what
+    /// was left, so a failure further down is traced to the test that caused it.
+    init() {
+        for (signal, handler) in untouched {
+            let (subscribers, left) = (subscriberCount(of: signal), disposition(signal))
+            if subscribers != 0 || left != handler {
+                Issue.record(
+                    """
+                    an earlier test left \(signalName(signal)) with \(subscribers) subscribed \
+                    and handler \(left), not \(handler)
+                    """
+                )
+            }
+        }
+    }
+
     @Test("delivers each signal")
     func delivers() async throws {
         let original = disposition(testSignal)
@@ -216,6 +233,12 @@ private func listen(_ name: String, _ report: AsyncStream<String>.Continuation) 
     /// Signals that can never be caught.
     let uncatchable = [SIGKILL, SIGSTOP]
 #endif
+
+/// The signals the tests send, each with its handler from before the first test subscribed: what
+/// every test must leave behind.
+private let untouched: [(signal: Int32, handler: UInt)] = [testSignal, otherSignal].map {
+    ($0, disposition($0))
+}
 
 /// Sends `signal` to this process. With `kill(getpid(), …)`, to the whole
 /// process, like a real `kill` or Ctrl-C (`raise` targets only the calling
