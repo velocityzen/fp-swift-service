@@ -16,8 +16,15 @@ concurrency:
 
 # Benchmarks/README.md describes the suites and how to run them locally.
 jobs:
+  # When a change touches .github, zizmor audits the workflows and actions
+  # first; every other job waits for it.
+  zizmor:
+    name: zizmor
+    uses: $/.github/workflows/zizmor.yml
+
   compare:
     name: Compare benchmarks
+    needs: zizmor
     runs-on: macos-26
     timeout-minutes: 45
     steps:

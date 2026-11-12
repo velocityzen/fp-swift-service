@@ -18,8 +18,15 @@ concurrency:
 # runners, or the image's in the Linux containers (the simulator jobs use
 # Xcode's). The longer shell steps are in .github/scripts.
 jobs:
+  # When a change touches .github, zizmor audits the workflows and actions
+  # first; every other job waits for it.
+  zizmor:
+    name: zizmor
+    uses: $/.github/workflows/zizmor.yml
+
   lint:
     name: Lint
+    needs: zizmor
     runs-on: macos-26
     env:
       SWIFTLINT_VERSION: "0.65.1"
@@ -60,6 +67,7 @@ jobs:
 
   macos:
     name: Test macOS
+    needs: zizmor
     runs-on: macos-26
     steps:
       - name: Checkout
@@ -100,6 +108,7 @@ jobs:
 
   apple:
     name: Test ${{ matrix.platform }} Simulator
+    needs: zizmor
     # swift-tools-version 6.4 needs Xcode 27, which only the xcode-27 image
     # (a public preview) has.
     runs-on: xcode-27
@@ -139,6 +148,7 @@ jobs:
 
   linux:
     name: Test Linux ${{ matrix.arch }} (Swift ${{ matrix.swift }})
+    needs: zizmor
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -179,6 +189,7 @@ jobs:
 
   windows:
     name: Test Windows
+    needs: zizmor
     runs-on: windows-2025
     steps:
       - name: Checkout
@@ -202,6 +213,7 @@ jobs:
 
   musl:
     name: Build static Linux (Musl)
+    needs: zizmor
     runs-on: ubuntu-latest
     # A Swift SDK only works with the exact compiler release it was built for,
     # so the image is pinned to the SDK's patch release (swift:6.4 moves on
@@ -254,6 +266,7 @@ jobs:
 
   android:
     name: Test Android (emulator)
+    needs: zizmor
     runs-on: ubuntu-latest
     env:
       # A Swift SDK only works with the exact compiler release it was built
