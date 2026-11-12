@@ -27,10 +27,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # swift-format comes with the toolchain, so it is pinned with it.
       - name: Set up Swift
-        uses: ./.github/actions/setup-swift
+        uses: $/.github/actions/setup-swift
         with:
           swift-version: "6.4"
 
@@ -62,11 +64,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # The runner's default Xcode may ship an older Swift; install the exact
       # toolchain so macOS and Linux build with the same compiler.
       - name: Set up Swift
-        uses: ./.github/actions/setup-swift
+        uses: $/.github/actions/setup-swift
         with:
           swift-version: "6.4"
 
@@ -120,6 +124,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Show Xcode version
         run: |
@@ -151,6 +157,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Show Swift version
         run: swift --version
@@ -175,9 +183,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Swift
-        uses: ./.github/actions/setup-swift
+        uses: $/.github/actions/setup-swift
         with:
           swift-version: "6.4.2"
 
@@ -205,6 +215,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Show Swift version
         run: swift --version
@@ -259,9 +271,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Swift
-        uses: ./.github/actions/setup-swift
+        uses: $/.github/actions/setup-swift
         with:
           swift-version: ${{ env.SWIFT_VERSION }}
 
