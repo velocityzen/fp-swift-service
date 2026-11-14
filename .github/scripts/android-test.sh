@@ -27,7 +27,9 @@ test -x "$stage/Example"
 
 device=/data/local/tmp/fp-swift-service
 "$adb" shell "cd $device && ./Example job"
-runners="$(cd "$stage" && ls -1 | grep -E -e '-test-runner$' -e '\.xctest$')"
+# The property-test runners are empty here: Hegel's engine has no Android
+# build (see Package.swift), and a run with no tests exits with 69.
+runners="$(cd "$stage" && ls -1 | grep -E -e '-test-runner$' -e '\.xctest$' | grep -v PropertyTests)"
 for runner in $runners; do
     echo "== $runner"
     "$adb" shell "cd $device && ./$runner --testing-library swift-testing"
