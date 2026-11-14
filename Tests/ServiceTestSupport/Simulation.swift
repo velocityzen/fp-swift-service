@@ -2,15 +2,15 @@ import Dispatch
 import Synchronization
 
 /// A deterministic runtime for one run: every task that prefers it runs on
-/// one thread, one job at a time, in an order the seed picks, and its clock
-/// moves only when no job is ready. So a seed is one interleaving, and the
-/// same seed is the same run.
+/// one thread, one job at a time, in an order its schedule picks, and its
+/// clock moves only when no job is ready. So a schedule is one interleaving,
+/// and the same schedule is the same run.
 ///
 /// A task prefers it when started with `Task(executorPreference:)`, and its
 /// child tasks and `@concurrent` functions inherit that. Anything else — a
 /// plain `Task {}`, Dispatch, `Task.sleep` — escapes it, so code under
 /// simulation takes its tasks, threads and clock from seams.
-final class Simulation: TaskExecutor, Sendable {
+package final class Simulation: TaskExecutor, Sendable {
     private struct Timer {
         let id: Int
         let deadline: Duration
@@ -18,7 +18,7 @@ final class Simulation: TaskExecutor, Sendable {
     }
 
     private struct State {
-        var random: SplitMix64
+        var schedule: Schedule
         var ready: [UnownedJob] = []
         var timers: [Timer] = []
         var now: Duration = .zero
@@ -30,18 +30,28 @@ final class Simulation: TaskExecutor, Sendable {
 
     private let state: Mutex<State>
 
-    init(seed: UInt64) {
-        state = Mutex(State(random: SplitMix64(seed: seed)))
+    /// Picks each job from a seeded generator.
+    package init(seed: UInt64) {
+        state = Mutex(State(schedule: .seeded(SplitMix64(seed: seed))))
+    }
+
+    /// Picks each job by the next of `choices`, modulo how many are ready,
+    /// counting only the picks with more than one ready; the first ready
+    /// once they run out. So the empty schedule runs every job in the order
+    /// it became ready, and a schedule with smaller and fewer choices stays
+    /// closer to that: what a property test's shrinking moves toward.
+    package init(schedule choices: [Int]) {
+        state = Mutex(State(schedule: .drawn(choices[...])))
     }
 
     /// The simulated clock: it moves only when no job is ready, straight to
     /// the next deadline.
-    var clock: SimulationClock { SimulationClock(simulation: self) }
+    package var clock: SimulationClock { SimulationClock(simulation: self) }
 
     /// Simulated time since the run began.
-    var now: Duration { state.withLock { $0.now } }
+    package var now: Duration { state.withLock { $0.now } }
 
-    func enqueue(_ job: consuming ExecutorJob) {
+    package func enqueue(_ job: consuming ExecutorJob) {
         let job = UnownedJob(job)
         state.withLock { $0.ready.append(job) }
     }
@@ -50,7 +60,7 @@ final class Simulation: TaskExecutor, Sendable {
     /// is left to run, on a thread of its own (the concurrency pool may have
     /// one thread). Returns its result, or `nil` if it never finished: every
     /// task left was waiting for something that could never happen.
-    func run<T: Sendable>(_ operation: @escaping @Sendable () async -> T) async -> T? {
+    package func run<T: Sendable>(_ operation: @escaping @Sendable () async -> T) async -> T? {
         let result = Mutex<T?>(nil)
         Task(executorPreference: self) {
             let value = await operation()
@@ -69,7 +79,7 @@ final class Simulation: TaskExecutor, Sendable {
     /// shutdown request on a thread of its own: the work interleaves with
     /// the rest of the run, and returns once every stretch it was busy for
     /// has passed. Nothing cancels it, as nothing cancels a thread.
-    func offload(_ work: @escaping @Sendable () -> Void) async {
+    package func offload(_ work: @escaping @Sendable () -> Void) async {
         await Task(executorPreference: self) { [self] in
             state.withLock { $0.busy = [] }
             work()
@@ -88,7 +98,7 @@ final class Simulation: TaskExecutor, Sendable {
     /// slow or blocking call would, then runs `then`. Under ``offload(_:)``
     /// the rest of the run goes on meanwhile; anywhere else a thread of the
     /// run would be held, so it takes no time.
-    func block(for duration: Duration, then: @escaping @Sendable () -> Void) {
+    package func block(for duration: Duration, then: @escaping @Sendable () -> Void) {
         let offloaded = state.withLock { state in
             state.busy?.append((duration, then))
             return state.busy != nil
@@ -108,7 +118,7 @@ final class Simulation: TaskExecutor, Sendable {
         while true {
             let step = state.withLock { state -> Step in
                 if !state.ready.isEmpty {
-                    let index = Int(state.random.next() % UInt64(state.ready.count))
+                    let index = state.schedule.pick(of: state.ready.count)
                     return .run(state.ready.remove(at: index))
                 }
                 guard let next = state.timers.map(\.deadline).min() else { return .idle }
@@ -156,34 +166,56 @@ final class Simulation: TaskExecutor, Sendable {
     }
 }
 
+/// The order a ``Simulation`` runs ready jobs in.
+private enum Schedule {
+    case seeded(SplitMix64)
+    case drawn(ArraySlice<Int>)
+
+    /// The index of the next job to run, of `count` ready.
+    mutating func pick(of count: Int) -> Int {
+        guard count > 1 else { return 0 }
+        switch self {
+            case .seeded(var random):
+                defer { self = .seeded(random) }
+                return Int(random.next() % UInt64(count))
+            case .drawn(var choices):
+                guard let choice = choices.popFirst() else { return 0 }
+                self = .drawn(choices)
+                return Int(choice.magnitude % UInt(count))
+        }
+    }
+}
+
 /// A ``Simulation``'s clock.
-struct SimulationClock: Clock {
-    struct Instant: InstantProtocol {
+package struct SimulationClock: Clock {
+    package struct Instant: InstantProtocol {
         let offset: Duration
 
-        func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
-        func duration(to other: Instant) -> Duration { other.offset - offset }
-        static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
+        package func advanced(by duration: Duration) -> Instant {
+            Instant(offset: offset + duration)
+        }
+        package func duration(to other: Instant) -> Duration { other.offset - offset }
+        package static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
     }
 
     let simulation: Simulation
 
-    var now: Instant { Instant(offset: simulation.now) }
-    var minimumResolution: Duration { .zero }
+    package var now: Instant { Instant(offset: simulation.now) }
+    package var minimumResolution: Duration { .zero }
 
-    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+    package func sleep(until deadline: Instant, tolerance: Duration?) async throws {
         try await simulation.sleep(until: deadline.offset)
     }
 }
 
 /// A small, fast, seedable generator (SplitMix64): the same seed gives the
 /// same numbers on every platform.
-struct SplitMix64: RandomNumberGenerator {
+package struct SplitMix64: RandomNumberGenerator {
     private var state: UInt64
 
-    init(seed: UInt64) { state = seed }
+    package init(seed: UInt64) { state = seed }
 
-    mutating func next() -> UInt64 {
+    package mutating func next() -> UInt64 {
         state &+= 0x9E37_79B9_7F4A_7C15
         var z = state
         z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9

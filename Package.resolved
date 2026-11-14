@@ -1,5 +1,5 @@
 {
-  "originHash" : "904532934269140a811ed17c456ba18c3717ce54eb4f0ce0bde08f55c84c8a07",
+  "originHash" : "4d23222b6927cac4b168a4f721380faf3a3007fe05380745192e29956fd4f4cb",
   "pins" : [
     {
       "identity" : "fp-swift",
@@ -20,12 +20,30 @@
       }
     },
     {
+      "identity" : "hegel-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/velocityzen/hegel-swift",
+      "state" : {
+        "revision" : "3db02c990818cbb5248705af9e83d551be2dcfd2",
+        "version" : "0.51.6"
+      }
+    },
+    {
       "identity" : "swift-argument-parser",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-argument-parser",
       "state" : {
         "revision" : "6a52f3251125d74daf04fcbd5e6f08a75d074382",
         "version" : "1.8.2"
+      }
+    },
+    {
+      "identity" : "swift-syntax",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-syntax.git",
+      "state" : {
+        "revision" : "050f1a346fbbac0ca2cfb15a95274f7bd1cf0ccf",
+        "version" : "604.0.0"
       }
     }
   ],

@@ -66,7 +66,7 @@ A ``ServiceOutcome`` says why the service stopped; a ``ServiceError`` names the 
 
 ### Watch events
 
-An observer receives every lifecycle event as a stream of `Result`s, which finishes after the last event (`swift run Example events`).
+An observer receives every lifecycle event as a stream of `Result`s, which finishes after the last event (`swift run Example events`). It gets them all even when the caller cancels the run, which doesn't reach the observer; the call returns once the observer has.
 
 <!-- example: events -->
 ```swift

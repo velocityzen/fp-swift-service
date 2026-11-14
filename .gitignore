@@ -9,3 +9,6 @@ DerivedData/
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .netrc
 .claude
+
+# Hegel property-test failures, replayed first on the next run
+.hegel/

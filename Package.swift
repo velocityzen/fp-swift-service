@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "fp-swift-service",
-    platforms: [.macOS(.v26), .iOS(.v26), .tvOS(.v26), .watchOS(.v26), .visionOS(.v26)],
+    platforms: [.macOS(.v27), .iOS(.v27), .tvOS(.v27), .watchOS(.v27), .visionOS(.v27)],
     products: [
         .library(name: "FPService", targets: ["FPService"]),
         .library(name: "ProcessSignals", targets: ["ProcessSignals"]),
@@ -12,6 +12,9 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.8.2"),
         .package(url: "https://github.com/velocityzen/fp-swift", from: "4.2.1"),
         .package(url: "https://github.com/velocityzen/fp-swift-bracket", from: "2.1.0"),
+        // Property-based tests. Test targets only, so the libraries' users
+        // never fetch it.
+        .package(url: "https://github.com/velocityzen/hegel-swift", .upToNextMinor(from: "0.51.6")),
     ],
     targets: [
         // The core: FPBracket (which brings FP) and ProcessSignals. No Foundation.
@@ -65,11 +68,36 @@ let package = Package(
             name: "ProcessSignalsTests",
             dependencies: ["ProcessSignals", "ServiceTestSupport"]
         ),
+        // Hegel's engine is built for macOS and Linux only, so on the other
+        // platforms these targets are empty: every file is behind
+        // `#if os(macOS) || os(Linux)`.
+        .testTarget(
+            name: "FPServicePropertyTests",
+            dependencies: [
+                "FPService",
+                "ProcessSignals",
+                "ServiceTestSupport",
+                .product(name: "FPBracket", package: "fp-swift-bracket"),
+                hegel,
+            ],
+            swiftSettings: callerIsolation
+        ),
+        .testTarget(
+            name: "ProcessSignalsPropertyTests",
+            dependencies: ["ProcessSignals", "ServiceTestSupport", hegel],
+            swiftSettings: callerIsolation
+        ),
     ],
     swiftLanguageModes: [.v6]
 )
 
 // As in fp-swift and fp-swift-bracket: async functions and closures run on
 // the caller's actor, so their non-Sendable arguments can come from
-// @MainActor code.
+// @MainActor code. The property tests too, as in hegel-swift: a test case
+// is not Sendable, and stays with the property that drew it.
 var callerIsolation: [SwiftSetting] { [.enableUpcomingFeature("NonisolatedNonsendingByDefault")] }
+
+/// Hegel for the property tests, where its engine is built.
+var hegel: Target.Dependency {
+    .product(name: "HegelTesting", package: "hegel-swift", condition: .when(platforms: [.macOS, .linux]))
+}

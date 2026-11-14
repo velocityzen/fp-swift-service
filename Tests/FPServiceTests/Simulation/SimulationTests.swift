@@ -10,6 +10,7 @@
     import CRT
 #endif
 @testable import FPService
+import ServiceTestSupport
 import Testing
 
 @Suite("Simulation", .timeLimit(.minutes(1)))
@@ -21,6 +22,16 @@ struct SimulationTests {
         var orders: Set<[String]> = []
         for seed in 0..<20 { orders.insert(try #require(await interleave(seed: UInt64(seed)))) }
         #expect(orders.count > 1)
+    }
+
+    @Test("a schedule is one interleaving: the empty one runs jobs in the order they were ready")
+    func schedules() async throws {
+        let fifo = try #require(await interleave(Simulation(schedule: [])))
+        #expect(await interleave(Simulation(schedule: [])) == fifo)
+        #expect(await interleave(Simulation(schedule: [0, 0, 0])) == fifo)
+        let picked = try #require(await interleave(Simulation(schedule: [2, 1])))
+        #expect(await interleave(Simulation(schedule: [2, 1])) == picked)
+        #expect(picked != fifo)
     }
 
     @Test("the clock moves only when nothing can run, to the next deadline")
@@ -81,7 +92,12 @@ private let seeds: [UInt64] = Array(0..<200)
 /// Three tasks, each recording two steps with a suspension between: the
 /// order is the interleaving.
 private func interleave(seed: UInt64) async -> [String]? {
-    await Simulation(seed: seed).run {
+    await interleave(Simulation(seed: seed))
+}
+
+/// The same three tasks under `simulation`.
+private func interleave(_ simulation: Simulation) async -> [String]? {
+    await simulation.run {
         let log = Recorder()
         await withTaskGroup(of: Void.self) { group in
             for name in ["a", "b", "c"] {
@@ -127,76 +143,5 @@ func simulateService(seed: UInt64) async -> [String]? {
             log.append("result: \(result)")
         }
         return log.all
-    }
-}
-
-extension SimulationTests {
-    /// Random scenarios, each under a random interleaving, checked against
-    /// what any run must do. A failure names its seed: replay it alone with
-    /// `SIMULATION_SEED=<seed>`; `SIMULATION_SEEDS=<n>` runs more.
-    @Test("random scenarios keep every invariant")
-    func scenarios() async {
-        for seed in scenarioSeeds {
-            let scenario = Scenario(seed: seed)
-            guard let run = await scenario.run(in: Simulation(seed: seed)) else {
-                Issue.record("seed \(seed) hung\n\(scenario)")
-                continue
-            }
-            let broken = run.violations(of: scenario)
-            #expect(
-                broken.isEmpty,
-                """
-                seed \(seed): \(broken.joined(separator: "; "))
-                \(scenario)
-                result: \(run.result)
-                trace:
-                \(run.trace.joined(separator: "\n"))
-                """
-            )
-        }
-    }
-}
-
-/// `SIMULATION_SEED` replays one seed; `SIMULATION_SEEDS` sets how many run.
-private let scenarioSeeds: [UInt64] = {
-    func variable(_ name: String) -> UInt64? {
-        getenv(name).flatMap { UInt64(String(cString: $0)) }
-    }
-    if let seed = variable("SIMULATION_SEED") { return [seed] }
-    return Array(0..<(variable("SIMULATION_SEEDS") ?? 1000))
-}()
-
-extension SimulationTests {
-    @Test("the scenarios reach every way a run can end")
-    func coverage() async throws {
-        var endings: Set<String> = []
-        for seed in UInt64(0)..<300 {
-            let scenario = Scenario(seed: seed)
-            let run = try #require(
-                await scenario.run(in: Simulation(seed: seed)),
-                "seed \(seed) hung"
-            )
-            endings.insert(ending(run))
-            if run.trace.contains("handler returned") { endings.insert("handler returned") }
-        }
-        #expect(
-            endings.isSuperset(of: [
-                "success", "cancelled", "start failed", "serve failed", "stop failed",
-                "serve and stop failed", "shutdown timeout", "handler returned",
-            ]),
-            "reached only \(endings.sorted())"
-        )
-    }
-}
-
-private func ending(_ run: Run) -> String {
-    switch run.result {
-        case .success(let outcome): outcome.cancellationReason == nil ? "success" : "cancelled"
-        case .failure(.startFailed): "start failed"
-        case .failure(.serveFailed): "serve failed"
-        case .failure(.stopFailed): "stop failed"
-        case .failure(.serveAndStopFailed): "serve and stop failed"
-        case .failure(.shutdownTimeout): "shutdown timeout"
-        case .failure(.signalsUnavailable): "signals unavailable"
     }
 }

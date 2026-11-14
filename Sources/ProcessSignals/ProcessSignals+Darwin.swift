@@ -24,7 +24,10 @@
         // Registration is asynchronous; wait for every source's, so a signal
         // sent right after `processSignals` returns is not missed. The
         // sources register together, so the wait is one, not one each.
-        await withUnsafeContinuation { (registered: UnsafeContinuation<Void, Never>) in
+        // Checked: Dispatch may resume it before the closure returns, which
+        // the runtime orders out of Thread Sanitizer's sight, so it reports
+        // an unsafe one resumed that way as a race.
+        await withCheckedContinuation { (registered: CheckedContinuation<Void, Never>) in
             let registrations = Registrations(sources.count, then: registered)
             sources.forEach { $0.register(registrations) }
         }
@@ -123,9 +126,9 @@
     /// task once all have.
     final class Registrations: Sendable {
         private let remaining: Atomic<Int>
-        private let done: UnsafeContinuation<Void, Never>
+        private let done: CheckedContinuation<Void, Never>
 
-        init(_ count: Int, then done: UnsafeContinuation<Void, Never>) {
+        init(_ count: Int, then done: CheckedContinuation<Void, Never>) {
             remaining = Atomic(count)
             self.done = done
         }

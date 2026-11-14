@@ -95,6 +95,23 @@ struct EventTests {
         #expect(harness.log.events.isEmpty)
     }
 
+    @Test("a caller's cancel doesn't reach the observer: it still sees how the run ended")
+    func observerOutlivesTheCallersCancel() async throws {
+        let log = Recorder()
+        let run = Task {
+            let withService = Service(probe("a", log)) { events in
+                for await event in events { log.append("event: \(describe(event))") }
+            }
+            return await withService()
+        }
+        try await withDeadline { await log.wait(for: "event: ready") }
+        run.cancel()
+        let result = try await withDeadline { await run.value }
+
+        #expect(try result.get().cancellationReason == .caller)
+        #expect(log.events == ["started", "ready", "cancelling: caller", "stopped"])
+    }
+
     @Test("an observer that returns early does not affect the service")
     func earlyObserver() async throws {
         let log = Recorder()

@@ -94,7 +94,10 @@ func release(_ signals: AsyncStream<Int32>, on taskExecutor: (any TaskExecutor)?
     await reader.value
 }
 
-/// Runs the observer, if there is one.
+/// Runs the observer, if there is one, shielded from the caller's
+/// cancellation: a cancelled task's `for await` ends at once, so an
+/// observer the cancel reached would miss the events that tell how the run
+/// ended. The stream finishes after the last event, so it still returns.
 func runObserver<Failure: Error>(
     _ observe: sending (@concurrent (ServiceEvents<Failure>) async -> Void)?,
     _ events: ServiceEvents<Failure>?
@@ -103,5 +106,5 @@ func runObserver<Failure: Error>(
         return
     }
 
-    await observe(events)
+    await withTaskCancellationShield { await observe(events) }
 }

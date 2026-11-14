@@ -19,7 +19,7 @@ dependencies: [
 
 Add `FPService` to your target. `ProcessSignals` is also available on its own.
 
-Requires Swift 6.4. Runs on macOS, iOS, tvOS, watchOS and visionOS 26+, Linux, Android and Windows.
+Requires Swift 6.4. Runs on macOS, iOS, tvOS, watchOS and visionOS 27+, Linux, Android and Windows.
 
 Documentation: [FPService](https://swiftpackageindex.com/velocityzen/fp-swift-service/documentation/fpservice), [ProcessSignals](https://swiftpackageindex.com/velocityzen/fp-swift-service/documentation/processsignals).
 

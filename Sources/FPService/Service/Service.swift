@@ -52,7 +52,8 @@ public struct Service<Resource, Failure: Error>: ~Copyable {
     ///   - shutdownTimeout: how long the graceful stage may take before the
     ///     service is cancelled; `nil` waits indefinitely.
     ///   - clock: deadlines and stop durations; tests inject a manual clock.
-    ///   - observe: reads the run's events; without it none are produced.
+    ///   - observe: reads the run's events, every one, even once the caller
+    ///     has cancelled the run; without it none are produced.
     public init(
         _ service: sending BracketAsync<Resource, Failure>,
         shutdownSignals: [Int32] = [],

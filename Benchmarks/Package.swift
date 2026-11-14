@@ -12,7 +12,7 @@ let swiftSettings: [SwiftSetting] = [
 let package = Package(
     name: "fp-swift-service-benchmarks",
     // Matches the library's minimum. Benchmarks run on macOS only.
-    platforms: [.macOS(.v26)],
+    platforms: [.macOS(.v27)],
     dependencies: [
         .package(name: "fp-swift-service", path: ".."),
         .package(url: "https://github.com/velocityzen/fp-swift-bracket", from: "2.1.0"),
