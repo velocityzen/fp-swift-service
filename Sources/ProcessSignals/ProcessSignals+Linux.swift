@@ -174,12 +174,32 @@
             sigemptyset(&action.sa_mask)
             var previous = sigaction()
             sigaction(signal, &action, &previous)
+            previous.dropInvalidRestorer()
             return Disposition(signal: signal, action: previous)
         }
 
         func restore() {
             var action = action
             sigaction(signal, &action, nil)
+        }
+    }
+
+    extension sigaction {
+        /// Clears `sa_restorer` if it holds a value no pointer can have. Where the C library
+        /// doesn't use the field (glibc on aarch64), the action `sigaction` returns can hold
+        /// whatever was on the library's stack there. Swift keeps an optional's nil in the values
+        /// below 4096 that no pointer has, so a `sigaction` holding one there, or any value
+        /// containing it, can read as nil inside an optional: the subscriber table lost entries
+        /// (MM-50). Where the field is used, it holds the C library's own function, which this
+        /// keeps.
+        package mutating func dropInvalidRestorer() {
+            guard let offset = MemoryLayout<sigaction>.offset(of: \.sa_restorer) else { return }
+            withUnsafeMutableBytes(of: &self) { bytes in
+                // Read as an integer: as a function pointer, the value would already be invalid.
+                if bytes.load(fromByteOffset: offset, as: UInt.self) < 4096 {
+                    bytes.storeBytes(of: 0, toByteOffset: offset, as: UInt.self)
+                }
+            }
         }
     }
 #endif

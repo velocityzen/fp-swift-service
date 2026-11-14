@@ -307,3 +307,48 @@ struct SignalNameTests {
         #expect(signalName(1234) == "signal 1234")
     }
 }
+
+#if os(Linux) || os(Android)
+    /// MM-50: on aarch64, glibc's `sigaction` can return a previous action whose `sa_restorer` is
+    /// leftover stack, a value below 4096 that Swift uses for an optional's nil, so the
+    /// subscriber table read the entry holding it as absent.
+    @Suite("sigaction.dropInvalidRestorer")
+    struct DropInvalidRestorerTests {
+        @Test(
+            "clears a restorer no pointer can have, and an optional then keeps the action",
+            arguments: [1, 2, 0x80, 0xa0, 0xfff] as [UInt]
+        )
+        func clears(_ restorer: UInt) {
+            var action = sigaction()
+            action.sa_flags = SA_RESTART
+            setRestorer(of: &action, to: restorer)
+            action.dropInvalidRestorer()
+            #expect(restorerBits(of: action) == 0)
+
+            let table: [Int32: sigaction] = [SIGUSR2: action]
+            #expect(table[SIGUSR2]?.sa_flags == SA_RESTART)
+            #expect(table[SIGUSR2].map(\.sa_flags) == SA_RESTART)
+        }
+
+        @Test("keeps a restorer that can be a pointer", arguments: [0, 0x1000, UInt.max] as [UInt])
+        func keeps(_ restorer: UInt) {
+            var action = sigaction()
+            setRestorer(of: &action, to: restorer)
+            action.dropInvalidRestorer()
+            #expect(restorerBits(of: action) == restorer)
+        }
+    }
+
+    /// `sa_restorer`'s bits, read as an integer: as a function pointer, a small one is invalid.
+    private func restorerBits(of action: sigaction) -> UInt {
+        let offset = MemoryLayout<sigaction>.offset(of: \.sa_restorer)!
+        return withUnsafeBytes(of: action) { $0.load(fromByteOffset: offset, as: UInt.self) }
+    }
+
+    private func setRestorer(of action: inout sigaction, to bits: UInt) {
+        let offset = MemoryLayout<sigaction>.offset(of: \.sa_restorer)!
+        withUnsafeMutableBytes(of: &action) {
+            $0.storeBytes(of: bits, toByteOffset: offset, as: UInt.self)
+        }
+    }
+#endif
