@@ -27,7 +27,7 @@ import Synchronization
 ///   call is missed.
 /// - Signals that can't be caught (`SIGKILL`, `SIGSTOP`, or numbers the
 ///   platform lacks or reserves) are left out. If none are left, the
-///   stream is already finished. On Linux and Android, so is a stream that
+///   stream is already finished. Except on Windows, so is a stream that
 ///   can't subscribe at all (no file descriptor left); a later call retries.
 /// - While the stream lives, the signals' default actions are suspended.
 ///   They are caught, not ignored, so child processes start with the
@@ -35,8 +35,11 @@ import Synchronization
 /// - Cancelling the iterating task, or releasing the stream, ends it; the
 ///   last stream on a signal restores its previous disposition. Breaking
 ///   out of the loop doesn't end it.
-/// - Several streams can share a signal; each gets every delivery. Signals
-///   sent at the same instant may merge, except on Darwin.
+/// - Several streams can share a signal; each gets every delivery. Copies of
+///   a signal sent at the same instant may merge into one.
+/// - A signal is never lost: one that arrives as the last stream on it ends
+///   is either delivered or has the signal's previous effect. For the
+///   latter it is sent again, by this process.
 ///
 /// On Windows, console events arrive as SIGINT (Ctrl-C), SIGBREAK
 /// (Ctrl-Break) and SIGTERM (close, logoff, shutdown), the only signals
@@ -81,8 +84,7 @@ package func registerSignals(_ signals: [Int32]) async -> Signals {
         }
         #if canImport(Darwin)
             // Darwin has signals 1 to 31 and keeps none for itself, so the
-            // range is exact, and spares a system call. (Given any other
-            // number, Dispatch would end the process.)
+            // range is exact, and spares a system call.
             return (1..<NSIG).contains(signal)
         #else
             #if canImport(Android)
@@ -127,11 +129,11 @@ func addSubscriber(to signal: Int32) {
 func removeSubscriber(from signal: Int32) {
     subscribers.withLock { subscribers in
         guard let state = subscribers[signal] else { return }
-        if state.count > 1 {
-            subscribers[signal]?.count -= 1
-        } else {
+        if state.count == 1 {
             subscribers[signal] = nil
             state.previous.restore()
+        } else {
+            subscribers[signal]?.count -= 1
         }
     }
 }

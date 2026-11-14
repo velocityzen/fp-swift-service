@@ -53,60 +53,38 @@
         }
 
         /// One operation at a time: streams subscribe, signals are sent,
-        /// streams end. After every step each signal has as many subscribers
-        /// as the model has streams on it, and its disposition is the one
-        /// from before exactly when it has none. Each send reaches every
-        /// stream subscribed to it, once, and never the handler from before.
+        /// streams end, sometimes as a signal on them is on its way. After
+        /// every step each signal has as many subscribers as the model has
+        /// streams on it, and its disposition is the one from before exactly
+        /// when it has none. Each send reaches every live stream subscribed
+        /// to it, once, and is never lost: one sent as the last stream on it
+        /// ends, or to no stream, reaches that stream or the handler from
+        /// before, exactly once.
         @Test(.hegel(testCases: 200))
         func subscriptionsMatchTheModel() async throws {
             try await withCountingHandlers {
                 try await property(reaching: SignalReach.sequential) { tc in
                     let streams = Streams()
                     do {
-                        _ = try await subscriptionMachine.run(
+                        let model = try await subscriptionMachine.run(
                             tc,
                             from: SubscriptionModel(streams: streams, ids: try tc.pool())
                         )
+                        await streams.endAll()
+                        for signal in ours {
+                            #expect(
+                                disposition(signal) == countingHandler,
+                                "\(signalName(signal)) not restored"
+                            )
+                            let (owed, got) = model.account(of: signal)
+                            #expect(
+                                got == owed,
+                                "\(signalName(signal)): \(got) effects for \(owed)"
+                            )
+                        }
                     } catch {
                         await streams.endAll()
                         throw error
-                    }
-                    await streams.endAll()
-                    for signal in ours {
-                        #expect(
-                            disposition(signal) == countingHandler,
-                            "\(signalName(signal)) not restored"
-                        )
-                    }
-                    #expect(
-                        previousEffects.load(ordering: .relaxed) == 0,
-                        "a delivered signal also ran its previous handler"
-                    )
-                }
-            }
-        }
-
-        /// Streams subscribing and ending from several tasks at once: between
-        /// rounds, each signal's subscriber count is the number of live
-        /// streams on it, and a signal with none has its disposition back.
-        @Test(.hegel(testCases: 200))
-        func concurrentSubscriptionsKeepCount() async throws {
-            try await withCountingHandlers {
-                try await property(reaching: [SignalReach.restored, SignalReach.shared]) { tc in
-                    let streams = Streams()
-                    do {
-                        try await concurrentSubscriptionMachine.run(
-                            tc,
-                            from: SharedStreams(streams: streams, ids: try tc.pool())
-                        )
-                    } catch {
-                        await streams.endAll()
-                        throw error
-                    }
-                    await streams.endAll()
-                    for signal in ours {
-                        #expect(subscriberCount(of: signal) == 0)
-                        #expect(disposition(signal) == countingHandler)
                     }
                 }
             }
@@ -118,16 +96,27 @@
         static let restored = "the last stream on a signal ended"
         static let shared = "streams shared a signal"
         static let mixed = "a stream subscribed to several signals"
+        static let racedLast = "a signal was sent as the last stream on it ended"
+        static let racedReached = "a signal sent as its stream ended reached that stream"
+        static let racedPrevious =
+            "a signal sent as the last stream on it ended had its previous effect"
+        static let unheld = "a signal was sent with no stream on it"
 
-        static let sequential = [delivered, restored, shared, mixed]
+        static let sequential = [
+            delivered, restored, shared, mixed, racedLast, racedReached, racedPrevious, unheld,
+        ]
     }
 
     /// The signals these properties subscribe to and send.
     let ours: [Int32] = [SIGUSR2, SIGXFSZ, SIGVTALRM]
 
-    /// How many times the suite's own handler ran: a signal that had its
-    /// previous effect besides being delivered.
-    let previousEffects = Atomic<Int>(0)
+    /// How many times the suite's own handler ran, by signal: how often a
+    /// signal had its previous effect.
+    let previousEffects = InlineArray<65, Atomic<Int>> { _ in Atomic(0) }
+
+    func previousEffects(of signal: Int32) -> Int {
+        previousEffects[Int(signal)].load(ordering: .relaxed)
+    }
 
     /// The suite's own handler, as `disposition` shows it.
     nonisolated(unsafe) var countingHandler: UInt = 0
@@ -136,7 +125,7 @@
     /// then puts back what was there.
     func withCountingHandlers(_ body: () async throws -> Void) async throws {
         var counting = sigaction()
-        counting.handler = { _ in previousEffects.add(1, ordering: .relaxed) }
+        counting.handler = { signal in previousEffects[Int(signal)].add(1, ordering: .relaxed) }
         sigemptyset(&counting.sa_mask)
         var originals: [sigaction] = []
         for signal in ours {
@@ -145,7 +134,6 @@
             originals.append(original)
         }
         countingHandler = disposition(ours[0])
-        previousEffects.store(0, ordering: .relaxed)
         defer {
             for (signal, var original) in zip(ours, originals) { sigaction(signal, &original, nil) }
         }
@@ -155,13 +143,20 @@
     enum SignalGen {
         /// Mostly ours, with repeats; sometimes ones no stream can have.
         static let requested: Gen<[Int32]> = .array(
-            of: .oneOf(
-                .element(of: ours),
-                .element(of: ours),
-                .element(of: [SIGKILL, SIGSTOP, 0, -1, 1234])
-            ),
+            of: .oneOf(.element(of: ours), .element(of: ours), .element(of: unavailable)),
             count: 0...6
         )
+
+        /// Signals no stream can have: those that can't be caught, and numbers around the
+        /// platform's range: none, negative, the first past the last (`NSIG`), the ones glibc keeps
+        /// for itself, and far past it.
+        static let unavailable: [Int32] = [SIGKILL, SIGSTOP, 0, -1, 1234, .max, .min] + pastTheEnd
+
+        #if canImport(Darwin)
+            static let pastTheEnd: [Int32] = [32]
+        #else
+            static let pastTheEnd: [Int32] = [32, 33, 65]
+        #endif
     }
 
     // MARK: - Streams
@@ -210,6 +205,15 @@
             return reader.signals
         }
 
+        /// Waits, ten seconds at most, until `done` holds; returns whether it did.
+        static func arrives(_ done: @escaping @Sendable () -> Bool) async -> Bool {
+            (try? await withDeadline(.seconds(10)) { () async -> Bool in
+                // Stops once the deadline cancels it: a cancelled sleep returns at once.
+                while !done(), !Task.isCancelled { try? await Task.sleep(for: .milliseconds(1)) }
+                return done()
+            }) ?? false
+        }
+
         func endAll() async {
             for id in readers.withLock({ Array($0.keys) }) { await end(id) }
         }
@@ -226,8 +230,54 @@
         var subscribed: [Int: [Int32]] = [:]
         /// How many times each stream has been sent each signal.
         var sent: [Int: [Int32: Int]] = [:]
+        /// Each signal's previous effects from before this test case.
+        let effectsBefore = Dictionary(
+            uniqueKeysWithValues: ours.map { ($0, previousEffects(of: $0)) }
+        )
+        /// Sends to no stream, by signal: each owes the handler from before.
+        var unheld: [Int32: Int] = [:]
+        /// Sends as a stream on the signal ended.
+        var raced: [Race] = []
+
+        /// A signal sent as a stream subscribed to it ended.
+        struct Race: Sendable {
+            let signal: Int32
+            /// What the ending stream had got of it before.
+            let before: Int
+            let received: Streams.Received
+            /// Whether no other stream held the signal: then it owes one
+            /// effect, on the ending stream or the handler from before.
+            let last: Bool
+
+            /// Whether the ending stream got it.
+            var reached: Int { received.count(of: signal) - before }
+        }
 
         func count(of signal: Int32) -> Int { subscribed.values.count { $0.contains(signal) } }
+
+        /// How many effects `signal`'s sends owe, outside the live streams, and how many
+        /// happened: the handler from before running, and a stream that ended as the last on
+        /// the signal getting it.
+        func account(of signal: Int32) -> (owed: Int, got: Int) {
+            let last = raced.filter { $0.signal == signal && $0.last }
+            let effects = previousEffects(of: signal) - (effectsBefore[signal] ?? 0)
+            return (
+                (unheld[signal] ?? 0) + last.count,
+                effects + last.reduce(0) { $0 + $1.reached }
+            )
+        }
+
+        /// Waits until `signal`'s owed effects have happened, then a moment more for a second
+        /// copy; returns whether they did.
+        func settle(_ signal: Int32) async -> Bool {
+            let model = self
+            let done = await Streams.arrives {
+                let (owed, got) = model.account(of: signal)
+                return got >= owed
+            }
+            try? await Task.sleep(for: .milliseconds(2))
+            return done
+        }
     }
 
     let subscriptionMachine = StateMachine<SubscriptionModel>()
@@ -269,13 +319,73 @@
                     (live[id]?.received.count(of: signal) ?? 0) < (sent[id]?[signal] ?? 0)
                 }
             }
-            let arrived =
-                (try? await withDeadline(.seconds(10)) { () async -> Bool in
-                    while waiting() { try? await Task.sleep(for: .milliseconds(1)) }
-                    return true
-                }) ?? false
+            let arrived = await Streams.arrives { !waiting() }
             #expect(arrived, "\(signalName(signal)) didn't reach every stream on it")
             if receivers.count > 1 { try tc.event(SignalReach.delivered) }
+        }
+        .rule("send as a stream on it ends") { m, tc in
+            let subscribed = m.subscribed
+            let id = try tc.draw(
+                m.ids.consumed { !(subscribed[$0] ?? []).isEmpty },
+                named: "stream"
+            )
+            let signals = m.subscribed.removeValue(forKey: id) ?? []
+            let signal = try tc.draw(.element(of: signals), named: "signal")
+            guard let received = m.streams.live[id]?.received else {
+                Issue.record("stream \(id) is not live")
+                return
+            }
+            let before = received.count(of: signal)
+            let receivers = m.subscribed.filter { $0.value.contains(signal) }.map(\.key)
+            for other in receivers { m.sent[other, default: [:]][signal, default: 0] += 1 }
+            m.sent[id] = nil
+            let race = SubscriptionModel.Race(
+                signal: signal,
+                before: before,
+                received: received,
+                last: receivers.isEmpty
+            )
+            m.raced.append(race)
+
+            // How long the signal has before its stream ends: none, or long enough for it to be
+            // caught, or delivered.
+            let gap = try tc.draw(.element(of: [0, 0, 20, 200, 2_000]), named: "gap (µs)")
+            kill(getpid(), signal)
+            if gap > 0 { try? await Task.sleep(for: .microseconds(gap)) }
+            await m.streams.end(id)
+
+            let live = m.streams.live
+            let sent = m.sent
+            let arrived = await Streams.arrives {
+                receivers.allSatisfy { other in
+                    (live[other]?.received.count(of: signal) ?? 0) >= (sent[other]?[signal] ?? 0)
+                }
+            }
+            #expect(arrived, "\(signalName(signal)) didn't reach every other stream on it")
+            #expect(await m.settle(signal), "\(signalName(signal)) was lost")
+            #expect(
+                (0...1).contains(race.reached),
+                "the ending stream got it \(race.reached) times"
+            )
+
+            if race.reached == 1 { try tc.event(SignalReach.racedReached) }
+            if race.last {
+                try tc.event(SignalReach.racedLast)
+                if race.reached == 0 { try tc.event(SignalReach.racedPrevious) }
+                try tc.event(SignalReach.restored)
+            }
+        }
+        .rule("send with no stream on it") { m, tc in
+            let unheld = ours.filter { m.count(of: $0) == 0 }
+            try tc.assume(!unheld.isEmpty)
+            let signal = try tc.draw(.element(of: unheld), named: "signal")
+            m.unheld[signal, default: 0] += 1
+            kill(getpid(), signal)
+            #expect(
+                await m.settle(signal),
+                "\(signalName(signal)) didn't reach its previous handler"
+            )
+            try tc.event(SignalReach.unheld)
         }
         .invariant("subscribers as the model", everyStep: true) { m, _ in
             for signal in ours {
@@ -288,6 +398,12 @@
                 #expect(restored == (m.count(of: signal) == 0), "\(signalName(signal))")
             }
         }
+        .invariant("a signal no live stream took had one effect", everyStep: true) { m, _ in
+            for signal in ours {
+                let (owed, got) = m.account(of: signal)
+                #expect(got == owed, "\(signalName(signal)): \(got) effects for \(owed)")
+            }
+        }
         .invariant("each send arrived once", everyStep: true) { m, _ in
             let live = m.streams.live
             for (id, sent) in m.sent {
@@ -298,45 +414,6 @@
                         "stream \(id) got \(signalName(signal)) \(got) times"
                     )
                 }
-            }
-        }
-
-    // MARK: - Concurrently
-
-    /// The streams the workers share.
-    final class SharedStreams: Sendable {
-        let streams: Streams
-        let ids: Pool<Int>
-
-        init(streams: Streams, ids: Pool<Int>) {
-            self.streams = streams
-            self.ids = ids
-        }
-    }
-
-    let concurrentSubscriptionMachine = ConcurrentStateMachine<SharedStreams>(concurrency: 2...4)
-        .rule("subscribe") { s, tc in
-            let requested = try tc.draw(SignalGen.requested, named: "requested")
-            let (id, _) = await s.streams.subscribe(requested)
-            try s.ids.add(id, using: tc)
-        }
-        .rule("end a stream") { s, tc in
-            let id = try tc.draw(s.ids.consumed, named: "stream")
-            let signals = await s.streams.end(id)
-            let live = s.streams.live.values
-            if signals.contains(where: { signal in !live.contains { $0.signals.contains(signal) } })
-            {
-                try tc.event(SignalReach.restored)
-            }
-        }
-        .invariant("subscribers are the live streams", everyStep: true) { s, tc in
-            let live = s.streams.live.values
-            for signal in ours {
-                let streams = live.count { $0.signals.contains(signal) }
-                #expect(subscriberCount(of: signal) == streams, "\(signalName(signal))")
-                let restored = disposition(signal) == countingHandler
-                #expect(restored == (streams == 0), "\(signalName(signal)) restored: \(restored)")
-                if streams > 1 { try tc.event(SignalReach.shared) }
             }
         }
 

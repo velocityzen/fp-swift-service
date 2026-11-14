@@ -1,5 +1,7 @@
-#if canImport(Glibc) || canImport(Musl) || canImport(Android)
-    #if canImport(Glibc)
+#if !os(Windows)
+    #if canImport(Darwin)
+        import Darwin
+    #elseif canImport(Glibc)
         import Glibc
     #elseif canImport(Musl)
         import Musl
@@ -9,14 +11,17 @@
     import Dispatch
     import Synchronization
 
-    // Linux and Android: a `sigaction` handler of our own writes each signal to a pipe,
-    // and one Dispatch read source drains the pipe into every stream that
-    // is subscribed to the signal.
+    // Darwin, Linux and Android: a `sigaction` handler of our own writes each signal to a pipe,
+    // and one Dispatch read source drains the pipe into every stream that is subscribed to the
+    // signal. A signal no stream takes, since each one holding it has ended, is sent again: to a
+    // stream still subscribed, or to the disposition the last one restored.
     //
-    // Dispatch *signal* sources are not used here: libdispatch installs a
-    // handler of its own for them and never removes it, so the previous
-    // disposition could not be restored (swift-corelibs-libdispatch,
-    // src/event/event_epoll.c).
+    // Dispatch *signal* sources are not used: on Linux, libdispatch installs a handler of its own
+    // for them and never removes it, so the previous disposition could not be restored
+    // (swift-corelibs-libdispatch, src/event/event_epoll.c). On Darwin, kqueue records a signal
+    // when it is sent, but a thread takes it later, with the disposition in force then: restored
+    // in between, a recorded signal had its previous effect too. The handler writing the pipe is
+    // the one record on every platform.
 
     /// Subscribes to each signal with ``handleSignal(_:)``, routing it to
     /// `continuation`. If no pipe could be made (the process is out of file
@@ -109,22 +114,38 @@
             reader.resume()
         }
 
-        /// Reads every pending signal byte and yields it to each stream that
-        /// is subscribed to the signal.
+        /// Reads every pending signal byte and delivers it.
+        ///
+        /// A signal no stream takes is sent to the process again: the streams holding it have
+        /// ended, but not yet released it. It comes back here until a stream subscribed since
+        /// takes it, or the last release restores the previous disposition, which then has it.
+        /// Releases run as streams end, so it comes back a few times at most. With `kill`, to
+        /// the whole process: the Dispatch threads this runs on block it.
         private func drain(_ readEnd: Int32) {
             var buffer = [UInt8](repeating: 0, count: 64)
             while true {
                 let count = read(readEnd, &buffer, buffer.count)
                 guard count > 0 else { return }
-                routes.withLock { routes in
-                    for byte in buffer.prefix(count) {
-                        let signal = Int32(byte)
-                        for route in routes.byID.values where route.signals.contains(signal) {
-                            route.continuation.yield(signal)
-                        }
-                    }
+                for byte in buffer.prefix(count) where !deliver(Int32(byte)) {
+                    kill(getpid(), Int32(byte))
                 }
             }
+        }
+
+        /// Yields `signal` to each stream subscribed to it, and returns whether one took it: a
+        /// stream that has ended takes nothing.
+        ///
+        /// Yielded outside the routes' lock: cancelling a stream's task releases it, which takes
+        /// that lock, while the runtime holds a lock of the task that a yield to it waits for.
+        private func deliver(_ signal: Int32) -> Bool {
+            let continuations = routes.withLock { routes in
+                routes.byID.values.filter { $0.signals.contains(signal) }.map(\.continuation)
+            }
+            var taken = false
+            for continuation in continuations {
+                if case .enqueued = continuation.yield(signal) { taken = true }
+            }
+            return taken
         }
 
         /// Delivers `signals` to `continuation` until ``unroute(_:)`` is
@@ -174,7 +195,9 @@
             sigemptyset(&action.sa_mask)
             var previous = sigaction()
             sigaction(signal, &action, &previous)
-            previous.dropInvalidRestorer()
+            #if !canImport(Darwin)
+                previous.dropInvalidRestorer()
+            #endif
             return Disposition(signal: signal, action: previous)
         }
 
@@ -184,22 +207,26 @@
         }
     }
 
-    extension sigaction {
-        /// Clears `sa_restorer` if it holds a value no pointer can have. Where the C library
-        /// doesn't use the field (glibc on aarch64), the action `sigaction` returns can hold
-        /// whatever was on the library's stack there. Swift keeps an optional's nil in the values
-        /// below 4096 that no pointer has, so a `sigaction` holding one there, or any value
-        /// containing it, can read as nil inside an optional: the subscriber table lost entries
-        /// (MM-50). Where the field is used, it holds the C library's own function, which this
-        /// keeps.
-        package mutating func dropInvalidRestorer() {
-            guard let offset = MemoryLayout<sigaction>.offset(of: \.sa_restorer) else { return }
-            withUnsafeMutableBytes(of: &self) { bytes in
-                // Read as an integer: as a function pointer, the value would already be invalid.
-                if bytes.load(fromByteOffset: offset, as: UInt.self) < 4096 {
-                    bytes.storeBytes(of: 0, toByteOffset: offset, as: UInt.self)
+    #if !canImport(Darwin)  // Darwin's `sigaction` has no `sa_restorer`
+        extension sigaction {
+            /// Clears `sa_restorer` if it holds a value no pointer can have. Where the C library
+            /// doesn't use the field (glibc on aarch64), the action `sigaction` returns can hold
+            /// whatever was on the library's stack there. Swift keeps an optional's nil in the values
+            /// below 4096 that no pointer has, so a `sigaction` holding one there, or any value
+            /// containing it, can read as nil inside an optional: the subscriber table lost entries
+            /// (MM-50). Where the field is used, it holds the C library's own function, which this
+            /// keeps.
+            package mutating func dropInvalidRestorer() {
+                guard let offset = MemoryLayout<sigaction>.offset(of: \.sa_restorer) else {
+                    return
+                }
+                withUnsafeMutableBytes(of: &self) { bytes in
+                    // Read as an integer: as a function pointer, the value would already be invalid.
+                    if bytes.load(fromByteOffset: offset, as: UInt.self) < 4096 {
+                        bytes.storeBytes(of: 0, toByteOffset: offset, as: UInt.self)
+                    }
                 }
             }
         }
-    }
+    #endif
 #endif

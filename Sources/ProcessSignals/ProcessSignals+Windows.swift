@@ -71,8 +71,10 @@
     }
 
     /// Delivers a console control event as its signal to every stream
-    /// subscribed to it, and returns whether there was one: whether the event
-    /// is handled. `package` so tests can hand it events without a console.
+    /// subscribed to it, and returns whether one took it: whether the event
+    /// is handled. One that no stream took (each one holding it has ended) is
+    /// not, so it passes on, as if no stream were subscribed. `package` so
+    /// tests can hand it events without a console.
     ///
     /// Windows ends the process once a close, logoff or shutdown event has
     /// been handled, so for those this returns only once no stream is
@@ -84,11 +86,16 @@
             return false
         }
 
-        routes.withLock { routes in
-            for route in routes.byID.values where route.signals.contains(signal) {
-                route.continuation.yield(signal)
-            }
+        // Yielded outside the routes' lock: cancelling a stream's task releases it, which takes
+        // that lock, while the runtime holds a lock of the task that a yield to it waits for.
+        let continuations = routes.withLock { routes in
+            routes.byID.values.filter { $0.signals.contains(signal) }.map(\.continuation)
         }
+        var taken = false
+        for continuation in continuations {
+            if case .enqueued = continuation.yield(signal) { taken = true }
+        }
+        guard taken else { return false }
         if signal == SIGTERM {
             while catches(SIGTERM) { Sleep(10) }
         }
