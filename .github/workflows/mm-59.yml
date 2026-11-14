@@ -1,0 +1,90 @@
+name: MM-59
+
+# Debugging Linear MM-59, on its branch only: the nightly property run on
+# Linux aarch64 crashed in libdispatch (a LISTLESS pointer, an item enqueued
+# twice) during concurrentSubscriptionsKeepCount. fp-swift (4.2.1 to 4.4.2)
+# and hegel-swift (0.51.6 to 0.51.8) moved the commit before, so one aarch64
+# job runs with the old pair; x86_64 is the control. Every step runs even
+# when an earlier one fails.
+on:
+  push:
+    branches: ["v/mm-59-*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  debug:
+    name: MM-59 on Linux ${{ matrix.arch }}, ${{ matrix.deps }} dependencies
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            deps: current
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            deps: old
+          - arch: x86_64
+            runner: ubuntu-latest
+            deps: current
+    container:
+      image: swift:6.4
+    env:
+      # The runtime's backtracer, on a crash: every thread, with source lines.
+      SWIFT_BACKTRACE: enable=yes,threads=all,sanitize=yes
+      # Randomized, as the nightly: each process draws new inputs.
+      HEGEL_DEFAULT_PROFILE: nightly
+      # A flat count, which hegel-swift 0.51.6 also reads (it has no scale):
+      # what the nightly's scale of 25 gave concurrentSubscriptionsKeepCount.
+      HEGEL_TEST_CASES: "5000"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Show the machine and Swift
+        run: |
+          uname -a
+          nproc
+          swift --version
+
+      # The pair from before e255578 and 1401cc3, exactly.
+      - name: Pin fp-swift 4.2.1 and hegel-swift 0.51.6
+        if: matrix.deps == 'old'
+        run: |
+          sed -i \
+            -e 's#fp-swift", from: "4.4.2"#fp-swift", exact: "4.2.1"#' \
+            -e 's#hegel-swift", .upToNextMinor(from: "0.51.8")#hegel-swift", exact: "0.51.6"#' \
+            Package.swift
+          grep -E 'fp-swift"|hegel-swift"' Package.swift
+          swift package update fp-swift hegel-swift
+
+      - name: Show the resolved versions
+        run: |
+          grep -A6 -E '"identity" : "(fp-swift|hegel-swift)"' Package.resolved \
+            | grep -E 'identity|version'
+
+      - name: Build the tests
+        run: swift build --build-tests
+
+      # The property that crashed, alone: whether it crashes without the
+      # properties that ran before it in the nightly.
+      - name: The concurrent property alone, 20 processes
+        if: ${{ !cancelled() }}
+        run: .github/scripts/mm-59-processes.sh 20 'SubscriptionProperties/concurrentSubscriptionsKeepCount'
+
+      # The whole target, as the nightly ran it: the sequential state machine
+      # (which waits with FP's withTimeout) right before the concurrent one.
+      - name: The signal property target, 5 processes
+        if: ${{ !cancelled() }}
+        run: .github/scripts/mm-59-processes.sh 5 'ProcessSignalsPropertyTests'
