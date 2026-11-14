@@ -18,8 +18,15 @@ concurrency:
 # runners, or the image's in the Linux containers (the simulator jobs use
 # Xcode's). The longer shell steps are in .github/scripts.
 jobs:
+  # When a change touches .github, zizmor audits the workflows and actions
+  # first; every other job waits for it.
+  zizmor:
+    name: zizmor
+    uses: $/.github/workflows/zizmor.yml
+
   lint:
     name: Lint
+    needs: zizmor
     runs-on: macos-26
     env:
       SWIFTLINT_VERSION: "0.65.1"
@@ -27,10 +34,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # swift-format comes with the toolchain, so it is pinned with it.
       - name: Set up Swift
-        uses: ./.github/actions/setup-swift
+        uses: $/.github/actions/setup-swift
         with:
           swift-version: "6.4"
 
@@ -58,6 +67,7 @@ jobs:
 
   macos:
     name: Test macOS
+    needs: zizmor
     # Package.swift needs macOS 27, which only the xcode-27 image (a public
     # preview) runs; macos-26 can't launch what it builds.
     runs-on: xcode-27
@@ -69,11 +79,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # The runner's default Xcode may ship an older Swift; install the exact
       # toolchain so macOS and Linux build with the same compiler.
       - name: Set up Swift
-        uses: ./.github/actions/setup-swift
+        uses: $/.github/actions/setup-swift
         with:
           swift-version: "6.4"
 
@@ -103,6 +115,7 @@ jobs:
 
   apple:
     name: Test ${{ matrix.platform }} Simulator
+    needs: zizmor
     # swift-tools-version 6.4 needs Xcode 27, which only the xcode-27 image
     # (a public preview) has.
     runs-on: xcode-27
@@ -127,6 +140,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Show Xcode version
         run: |
@@ -140,6 +155,7 @@ jobs:
 
   linux:
     name: Test Linux ${{ matrix.arch }} (Swift ${{ matrix.swift }})
+    needs: zizmor
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -158,6 +174,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Show Swift version
         run: swift --version
@@ -178,13 +196,16 @@ jobs:
 
   windows:
     name: Test Windows
+    needs: zizmor
     runs-on: windows-2025
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Swift
-        uses: ./.github/actions/setup-swift
+        uses: $/.github/actions/setup-swift
         with:
           swift-version: "6.4.2"
 
@@ -199,6 +220,7 @@ jobs:
 
   musl:
     name: Build static Linux (Musl)
+    needs: zizmor
     runs-on: ubuntu-latest
     # A Swift SDK only works with the exact compiler release it was built for,
     # so the image is pinned to the SDK's patch release (swift:6.4 moves on
@@ -212,6 +234,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Show Swift version
         run: swift --version
@@ -249,6 +273,7 @@ jobs:
 
   android:
     name: Test Android (emulator)
+    needs: zizmor
     runs-on: ubuntu-latest
     env:
       # A Swift SDK only works with the exact compiler release it was built
@@ -266,9 +291,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Swift
-        uses: ./.github/actions/setup-swift
+        uses: $/.github/actions/setup-swift
         with:
           swift-version: ${{ env.SWIFT_VERSION }}
 
