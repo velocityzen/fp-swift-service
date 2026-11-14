@@ -1,7 +1,8 @@
 name: Property tests
 
-# The Hegel property tests, deep: 10,000 randomized cases per property
-# (about 6 minutes on an M-series Mac). Pushes and pull requests run them
+# The Hegel property tests, deep: each property at 25 times its own count,
+# randomized (about 25 minutes on the macOS runner, where the real-signal
+# state machines are slowest). Pushes and pull requests run them
 # in the Test jobs of ci.yml, at each property's own count, with CI's
 # derandomized profile, so they see the same inputs every time; this run is
 # where new inputs come from.
@@ -22,8 +23,12 @@ concurrency:
 env:
   # Selects hegel.toml's nightly profile, randomized, over CI's.
   HEGEL_DEFAULT_PROFILE: nightly
-  # Wins over each property's own count, which wins over any profile's.
-  HEGEL_TEST_CASES: "10000"
+  # Multiplies each property's own count, so the costs stay relative: the
+  # real-signal state machines' 200 and 300 become 5,000 and 7,500, the pure
+  # helpers' 1,000 and 2,000 become 25,000 and 50,000. At 25 the macOS job
+  # takes about as long as 10,000 cases each did (29 minutes); 50 would come
+  # near its 60-minute limit. HEGEL_TEST_CASES would still win over it.
+  HEGEL_TEST_CASES_SCALE: "25"
 
 jobs:
   macos:

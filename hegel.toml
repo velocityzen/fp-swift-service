@@ -1,9 +1,10 @@
 # Settings for the Hegel property tests in Tests/FPServicePropertyTests and
 # Tests/ProcessSignalsPropertyTests. Each property sets its own number of
-# test cases, which wins over a profile's; only HEGEL_TEST_CASES wins over
-# it, for a deep run:
+# test cases, which wins over a profile's. For a deep run,
+# HEGEL_TEST_CASES_SCALE multiplies each property's count, keeping their
+# relative costs; HEGEL_TEST_CASES sets one count for all and wins over both:
 #
-#   HEGEL_TEST_CASES=10000 swift test --filter PropertyTests
+#   HEGEL_TEST_CASES_SCALE=25 swift test --filter PropertyTests
 #
 # On a CI server Hegel picks its `ci` profile: derandomized, so every run
 # sees the same inputs, with no failure database.

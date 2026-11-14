@@ -14,7 +14,7 @@ let package = Package(
         .package(url: "https://github.com/velocityzen/fp-swift-bracket", from: "2.1.0"),
         // Property-based tests. Test targets only, so the libraries' users
         // never fetch it.
-        .package(url: "https://github.com/velocityzen/hegel-swift", .upToNextMinor(from: "0.51.6")),
+        .package(url: "https://github.com/velocityzen/hegel-swift", .upToNextMinor(from: "0.51.8")),
     ],
     targets: [
         // The core: FPBracket (which brings FP) and ProcessSignals. No Foundation.
