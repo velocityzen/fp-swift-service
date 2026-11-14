@@ -1,11 +1,11 @@
 name: MM-59
 
-# Debugging Linear MM-59, on its branch only: the nightly property run on
-# Linux aarch64 crashed in libdispatch (a LISTLESS pointer, an item enqueued
-# twice) during concurrentSubscriptionsKeepCount. fp-swift (4.2.1 to 4.4.2)
-# and hegel-swift (0.51.6 to 0.51.8) moved the commit before, so one aarch64
-# job runs with the old pair; x86_64 is the control. Every step runs even
-# when an earlier one fails.
+# Debugging Linear MM-59, on its branch only: concurrentSubscriptionsKeepCount
+# crashes in libdispatch on Linux aarch64 (a LISTLESS pointer, an item
+# enqueued twice). Run 1: it crashes alone, in 5 of 15 and 7 of 17 processes
+# with either pair of fp-swift and hegel-swift versions; x86_64 never. Run 2
+# takes one layer away at a time (MM59Probes.swift), each in a job of its own
+# on aarch64, with the property itself as the control.
 on:
   push:
     branches: ["v/mm-59-*"]
@@ -20,22 +20,29 @@ concurrency:
 
 jobs:
   debug:
-    name: MM-59 on Linux ${{ matrix.arch }}, ${{ matrix.deps }} dependencies
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    name: MM-59 on Linux aarch64, ${{ matrix.name }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: aarch64
-            runner: ubuntu-24.04-arm
-            deps: current
-          - arch: aarch64
-            runner: ubuntu-24.04-arm
-            deps: old
-          - arch: x86_64
-            runner: ubuntu-latest
-            deps: current
+          # About 4 minutes a process: 5,000 cases, as the nightly.
+          - name: the property (control)
+            filter: SubscriptionProperties/concurrentSubscriptionsKeepCount
+            rounds: "1"
+          # B: hegel's concurrent machine with plain streams, 5,000 cases.
+          - name: hegel with plain streams
+            filter: MM59Probes/hegelPlainStreams
+            rounds: "1"
+          # C and D: a plain task group, sized to run about as long here as
+          # the property (26 s on an M-series Mac, where it takes 35 s).
+          - name: a loop with plain streams
+            filter: MM59Probes/loopPlainStreams
+            rounds: "800000"
+          - name: a loop with registerSignals
+            filter: MM59Probes/loopRealSignals
+            rounds: "300000"
     container:
       image: swift:6.4
     env:
@@ -43,9 +50,9 @@ jobs:
       SWIFT_BACKTRACE: enable=yes,threads=all,sanitize=yes
       # Randomized, as the nightly: each process draws new inputs.
       HEGEL_DEFAULT_PROFILE: nightly
-      # A flat count, which hegel-swift 0.51.6 also reads (it has no scale):
-      # what the nightly's scale of 25 gave concurrentSubscriptionsKeepCount.
       HEGEL_TEST_CASES: "5000"
+      # Turns the probes on; the loops' round count.
+      MM59_ROUNDS: ${{ matrix.rounds }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -58,33 +65,10 @@ jobs:
           nproc
           swift --version
 
-      # The pair from before e255578 and 1401cc3, exactly.
-      - name: Pin fp-swift 4.2.1 and hegel-swift 0.51.6
-        if: matrix.deps == 'old'
-        run: |
-          sed -i \
-            -e 's#fp-swift", from: "4.4.2"#fp-swift", exact: "4.2.1"#' \
-            -e 's#hegel-swift", .upToNextMinor(from: "0.51.8")#hegel-swift", exact: "0.51.6"#' \
-            Package.swift
-          grep -E 'fp-swift"|hegel-swift"' Package.swift
-          swift package update fp-swift hegel-swift
-
-      - name: Show the resolved versions
-        run: |
-          grep -A6 -E '"identity" : "(fp-swift|hegel-swift)"' Package.resolved \
-            | grep -E 'identity|version'
-
       - name: Build the tests
         run: swift build --build-tests
 
-      # The property that crashed, alone: whether it crashes without the
-      # properties that ran before it in the nightly.
-      - name: The concurrent property alone, 20 processes
-        if: ${{ !cancelled() }}
-        run: .github/scripts/mm-59-processes.sh 20 'SubscriptionProperties/concurrentSubscriptionsKeepCount'
-
-      # The whole target, as the nightly ran it: the sequential state machine
-      # (which waits with FP's withTimeout) right before the concurrent one.
-      - name: The signal property target, 5 processes
-        if: ${{ !cancelled() }}
-        run: .github/scripts/mm-59-processes.sh 5 'ProcessSignalsPropertyTests'
+      - name: 12 processes
+        env:
+          FILTER: ${{ matrix.filter }}
+        run: .github/scripts/mm-59-processes.sh 12 "$FILTER"
