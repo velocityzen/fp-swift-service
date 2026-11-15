@@ -119,8 +119,8 @@
         /// The kqueue, once open.
         private static let descriptor = Atomic<Int32>(-1)
 
-        /// Sends read from the kqueue and not yet delivered, in order.
-        private static let collected = Mutex<[Int32]>([])
+        /// Sends read from the kqueue and not yet delivered.
+        private static let collected = Mutex(Collected())
 
         private let reader: any DispatchSourceRead
 
@@ -160,15 +160,23 @@
             let descriptor = descriptor.load(ordering: .acquiring)
             guard descriptor >= 0 else { return }
             collected.withLock { collected in
-                var events = [KernelEvent](repeating: KernelEvent(), count: 32)
-                var now = timespec(tv_sec: 0, tv_nsec: 0)
-                while true {
-                    let count = kevent(descriptor, nil, 0, &events, Int32(events.count), &now)
-                    guard count > 0 else { return }
-                    for event in events.prefix(Int(count)) {
-                        let signal = Int32(event.ident)
-                        counts[Int(signal)].recorded.add(event.data, ordering: .relaxed)
-                        collected += repeatElement(signal, count: event.data)
+                withUnsafeTemporaryAllocation(of: KernelEvent.self, capacity: 32) { events in
+                    var now = timespec(tv_sec: 0, tv_nsec: 0)
+                    while true {
+                        let count = kevent(
+                            descriptor,
+                            nil,
+                            0,
+                            events.baseAddress,
+                            Int32(events.count),
+                            &now
+                        )
+                        guard count > 0 else { return }
+                        for event in events.prefix(Int(count)) {
+                            let signal = Int32(event.ident)
+                            counts[Int(signal)].recorded.add(event.data, ordering: .relaxed)
+                            collected.add(event.data, of: signal)
+                        }
                     }
                 }
             }
@@ -181,13 +189,33 @@
         /// takes it, or the last release restores the previous disposition, which then has it.
         /// With `kill`, to the whole process: Dispatch threads block it.
         static func deliverCollected() {
-            let signals = collected.withLock { collected in
-                defer { collected = [] }
+            let collected = collected.withLock { collected in
+                defer { collected = Collected() }
                 return collected
             }
-            for signal in signals where !routes.deliver(signal) {
-                kill(getpid(), signal)
+            for index in 0..<collected.signalCount {
+                let signal = collected.signals[index]
+                for _ in 0..<collected.sends[Int(signal)] where !routes.deliver(signal) {
+                    kill(getpid(), signal)
+                }
             }
+        }
+    }
+
+    /// Sends read from the kqueue, by signal. Fixed-size, so collecting allocates nothing.
+    private struct Collected {
+        /// Sends of each signal, by signal number.
+        var sends = InlineArray<32, Int>(repeating: 0)
+        /// The signals with sends, in the order kqueue first returned them.
+        var signals = InlineArray<31, Int32>(repeating: 0)
+        var signalCount = 0
+
+        mutating func add(_ count: Int, of signal: Int32) {
+            if sends[Int(signal)] == 0 {
+                signals[signalCount] = signal
+                signalCount += 1
+            }
+            sends[Int(signal)] += count
         }
     }
 

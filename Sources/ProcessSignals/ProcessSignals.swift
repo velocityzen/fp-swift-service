@@ -155,40 +155,111 @@ final class SignalRoutes: Sendable {
         let continuation: AsyncStream<Int32>.Continuation
     }
 
+    /// Every stream's continuation once for each signal it is subscribed to, never changed:
+    /// a route or unroute replaces it whole.
+    private final class Snapshot: Sendable {
+        /// Each subscribed signal, and at the same index the continuation it goes to: apart, as
+        /// reading any field of an element copies the element, which would retain its
+        /// continuation.
+        private let signals: [Int32]
+        private let continuations: [AsyncStream<Int32>.Continuation]
+
+        init(_ routes: some Sequence<Route>) {
+            var signals: [Int32] = []
+            var continuations: [AsyncStream<Int32>.Continuation] = []
+            for route in routes {
+                for signal in route.signals {
+                    signals.append(signal)
+                    continuations.append(route.continuation)
+                }
+            }
+            self.signals = signals
+            self.continuations = continuations
+        }
+
+        /// Yields `signal` to each stream subscribed to it, returning whether one took it.
+        /// Indexed, so each continuation is borrowed rather than retained.
+        func deliver(_ signal: Int32) -> Bool {
+            var taken = false
+            for index in signals.indices where signals[index] == signal {
+                if case .enqueued = continuations[index].yield(signal) { taken = true }
+            }
+            return taken
+        }
+    }
+
     private struct Table {
         var lastID: UInt64 = 0
         var byID: [UInt64: Route] = [:]
+        /// `nil` while nothing is routed, so the last unroute makes no snapshot.
+        var current: Snapshot?
+        /// Deliveries using a snapshot outside the lock.
+        var deliveries = 0
+        /// Snapshots replaced while a delivery may still use them, kept until none does.
+        var retired: [Snapshot] = []
+
+        /// Replaces the snapshot. The old one is kept in `retired` while a delivery may still use
+        /// it, and otherwise returned, to be dropped outside the lock: dropping a continuation can
+        /// end its stream, whose termination handler takes the lock.
+        mutating func replace() -> Snapshot? {
+            let old = current
+            current = byID.isEmpty ? nil : Snapshot(byID.values)
+            guard let old, deliveries > 0 else { return old }
+            retired.append(old)
+            return nil
+        }
     }
 
     private let table = Mutex(Table())
 
     /// Delivers `signals` to `continuation` until ``unroute(_:)`` is called with the returned id.
     func route(_ signals: [Int32], to continuation: AsyncStream<Int32>.Continuation) -> UInt64 {
-        table.withLock { table in
+        let (id, _) = table.withLock { table in
             table.lastID += 1
             table.byID[table.lastID] = Route(signals: signals, continuation: continuation)
-            return table.lastID
+            return (table.lastID, table.replace())
         }
+        return id
     }
 
     func unroute(_ id: UInt64) {
-        _ = table.withLock { $0.byID.removeValue(forKey: id) }
+        _ = table.withLock { table in
+            (table.byID.removeValue(forKey: id), table.replace())
+        }
     }
 
     /// Yields `signal` to each stream subscribed to it, and returns whether one took it: a stream
     /// that has ended takes nothing.
     ///
     /// Yielded outside the lock: cancelling a stream's task releases it, which takes the lock,
-    /// while the runtime holds a lock of the task that a yield to it waits for.
+    /// while the runtime holds a lock of the task that a yield to it waits for. The snapshot is
+    /// borrowed, not retained, so a delivery costs no reference counting: one replaced meanwhile
+    /// is kept in `retired` until the last delivery that may use it is done.
     func deliver(_ signal: Int32) -> Bool {
-        let continuations = table.withLock { table in
-            table.byID.values.filter { $0.signals.contains(signal) }.map(\.continuation)
+        let snapshot = table.withLock { table -> Unmanaged<Snapshot>? in
+            guard let current = table.current else { return nil }
+            table.deliveries += 1
+            return Unmanaged.passUnretained(current)
         }
-        var taken = false
-        for continuation in continuations {
-            if case .enqueued = continuation.yield(signal) { taken = true }
+        guard let snapshot else { return false }
+        let taken = snapshot._withUnsafeGuaranteedRef { $0.deliver(signal) }
+        // Only a Bool comes out in the usual case: even an absent array would be released.
+        let last = table.withLock { table in
+            table.deliveries -= 1
+            return table.deliveries == 0 && !table.retired.isEmpty
         }
+        if last { dropRetired() }
         return taken
+    }
+
+    /// Drops the snapshots no delivery uses any more, outside the lock.
+    private func dropRetired() {
+        let retired = table.withLock { table in
+            guard table.deliveries == 0 else { return [Snapshot]() }
+            defer { table.retired = [] }
+            return table.retired
+        }
+        _ = consume retired
     }
 }
 

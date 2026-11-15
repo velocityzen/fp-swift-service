@@ -102,12 +102,13 @@
     /// streams end, so it comes back a few times at most. With `kill`, to the whole process: the
     /// Dispatch threads this runs on block it.
     private func drain(_ readEnd: Int32) {
-        var buffer = [UInt8](repeating: 0, count: 64)
-        while true {
-            let count = read(readEnd, &buffer, buffer.count)
-            guard count > 0 else { return }
-            for byte in buffer.prefix(count) where !routes.deliver(Int32(byte)) {
-                kill(getpid(), Int32(byte))
+        withUnsafeTemporaryAllocation(of: UInt8.self, capacity: 64) { buffer in
+            while true {
+                let count = read(readEnd, buffer.baseAddress, buffer.count)
+                guard count > 0 else { return }
+                for byte in buffer.prefix(count) where !routes.deliver(Int32(byte)) {
+                    kill(getpid(), Int32(byte))
+                }
             }
         }
     }
