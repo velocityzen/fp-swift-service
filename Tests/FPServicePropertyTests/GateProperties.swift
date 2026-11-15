@@ -18,7 +18,8 @@
         /// `openUnlessCallbacks` opens unless a callback waits; a waiting task
         /// resumes once, when the gate opens or its wait is ended. Ids of
         /// callbacks and tasks are drawn from one pool, so each kind is also
-        /// removed and ended by the other's ids.
+        /// removed and ended by the other's ids. A callback may call back into
+        /// the gate, as it runs outside the lock, and finds it open.
         @Test(.hegel(testCases: 500))
         func gateMatchesItsModel() async throws {
             try await property(reaching: GateReach.sequential) { tc in
@@ -119,9 +120,10 @@
         static let ended = "a task's wait was ended"
         static let resumedAtOpen = "a task resumed at the open"
         static let wrongKind = "an id of the other kind did nothing"
+        static let calledBack = "a callback called back into the gate"
 
         static let sequential = [
-            ranAtOnce, removed, ranAtOpen, keptClosed, ended, resumedAtOpen, wrongKind,
+            ranAtOnce, removed, ranAtOpen, keptClosed, ended, resumedAtOpen, wrongKind, calledBack,
         ]
         static let concurrent = [removed, ranAtOpen, ended, resumedAtOpen]
     }
@@ -179,12 +181,21 @@
         var callbacks: [(id: UInt64, key: Int)] = []
         var expectedRuns: [Int] = []
         var waiters: [UInt64: Waiter] = [:]
+        /// The callback each calling-back callback registers, by its key.
+        var inner: [Int: Int] = [:]
+
+        /// What runs when the callback `key` runs: it, then the one it
+        /// registers, at once, on the open gate.
+        func runs(of key: Int) -> [Int] { [key] + (inner[key].map { [$0] } ?? []) }
 
         /// Opens the model; the tasks waiting must all resume.
         mutating func opened(_ tc: TestCase) async throws {
             open = true
-            expectedRuns += callbacks.map(\.key)
+            expectedRuns += callbacks.flatMap { runs(of: $0.key) }
             if !callbacks.isEmpty { try tc.event(GateReach.ranAtOpen) }
+            if callbacks.contains(where: { inner[$0.key] != nil }) {
+                try tc.event(GateReach.calledBack)
+            }
             callbacks = []
             for (id, waiter) in waiters {
                 #expect(await waiter.resumes(), "task \(id) not resumed by the open")
@@ -204,6 +215,41 @@
                 #expect(id == nil, "an id from an open gate")
                 m.expectedRuns.append(key)
                 try tc.event(GateReach.ranAtOnce)
+            } else {
+                let id = try #require(id, "no id from a closed gate")
+                m.callbacks.append((id, key))
+                try m.ids.add(id)
+            }
+        }
+        .rule("wait, calling back into the gate") { m, tc in
+            let key = m.nextKey
+            let innerKey = m.nextKey + 1
+            m.nextKey += 2
+            let call = try tc.draw(.element(of: GateCall.allCases), named: "call")
+            // Any id: once open, the gate has nothing left to remove.
+            let removing = m.callbacks.first?.id ?? 0
+            let (gate, runs) = (m.gate, m.runs)
+            // It runs once the gate is open, outside the lock: a call back
+            // into the gate under it would deadlock or trap.
+            let id = gate.wait {
+                runs.append(key)
+                switch call {
+                    case .isOpen: #expect(gate.isOpen, "closed, seen from its own callback")
+                    case .open: #expect(!gate.open(), "opened again from a callback")
+                    case .openUnlessCallbacks:
+                        #expect(gate.openUnlessCallbacks(), "closed, seen from a callback")
+                    case .wait:
+                        let id = gate.wait { runs.append(innerKey) }
+                        #expect(id == nil, "a callback registered from a callback waits")
+                    case .remove:
+                        #expect(gate.remove(removing) == nil, "removed from an open gate")
+                }
+            }
+            if call == .wait { m.inner[key] = innerKey }
+            if m.open {
+                #expect(id == nil, "an id from an open gate")
+                m.expectedRuns += m.runs(of: key)
+                try tc.event(GateReach.calledBack)
             } else {
                 let id = try #require(id, "no id from a closed gate")
                 m.callbacks.append((id, key))
@@ -268,6 +314,11 @@
         .invariant("callbacks ran as the model", everyStep: true) { m, _ in
             #expect(m.runs.all == m.expectedRuns)
         }
+
+    /// What a callback calls back into the gate.
+    enum GateCall: CaseIterable, Sendable {
+        case isOpen, open, openUnlessCallbacks, wait, remove
+    }
 
     // MARK: - Concurrently
 
