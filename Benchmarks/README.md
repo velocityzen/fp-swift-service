@@ -12,7 +12,7 @@ Every benchmark records wall clock and CPU time, instructions, malloc count and 
 | `ShutdownBenchmarks` | `Shutdown`: requesting it, `isRequested`, `requested`, `withShutdownHandler` and `withCancellation(on:_:)` |
 | `SignalBenchmarks` | `processSignals`: subscribing to one signal or two and letting go of them, and delivering one |
 
-A service acquires, serves and releases an `Int` with opaque functions that never suspend or allocate, and its `serve` returns at once, so a run measures the lifecycle around the bracket: its tasks, its inbox and its stage machine. The signal benchmarks use `SIGCONT` and `SIGWINCH`, whose default actions resume a stopped process and do nothing, so a benchmark can never end the process by mistake.
+A service acquires, serves and releases an `Int` with opaque functions that never suspend or allocate, and its `serve` returns at once, so a run measures the lifecycle around the bracket: its tasks, its inbox and its stage machine. The run with a shutdown timeout keeps time on a clock of its own, whose sleep lasts until its task is cancelled and costs the same whether the cancel comes first or not: the run cancels the timeout's task as soon as dispose returns, and on `ContinuousClock` whether that task had begun to sleep by then, which is up to the scheduler, changes the counts. The signal benchmarks use `SIGCONT` and `SIGWINCH`, whose default actions resume a stopped process and do nothing, so a benchmark can never end the process by mistake.
 
 Entries marked `(baseline)` do the same job by hand, and the gap between a baseline and the entry next to it is what the API costs:
 
