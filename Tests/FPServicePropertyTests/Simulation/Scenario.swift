@@ -38,14 +38,19 @@
             case ignoreShutdown
             /// Work that `withCancellation(on:_:)` cancels on shutdown.
             case cancelOnShutdown(work: Duration)
-            /// A shutdown handler that keeps its thread busy for `blocks`, with
-            /// work that returns `after` the shutdown request.
-            case handler(blocks: Duration, after: Duration)
+            /// Shutdown handlers, registered one inside the other, each keeping
+            /// its thread busy for its `blocks`, around work that returns
+            /// `after` the shutdown request.
+            case handlers(blocks: [Duration], after: Duration)
         }
 
         var brackets: [Bracket]
         var body: Body
         var bodyFails: Bool
+        /// What the service subscribes to.
+        var shutdownSignals: [Int32]
+        /// Which of them can't be subscribed to, in the order requested.
+        var unavailable: [Int32]
         var signals: [(at: Duration, signal: Int32)]
         var callerCancels: Duration?
         var shutdownTimeout: Duration?
@@ -62,6 +67,7 @@
             return """
                 brackets: \(brackets.joined(separator: ", "))
                 body: \(body)\(bodyFails ? ", fails" : "")
+                shutdown signals: \(shutdownSignals), unavailable: \(unavailable)
                 signals: \(signals.map { "\($0.signal) at \($0.at)" })
                 caller cancels: \(callerCancels.map { "\($0)" } ?? "never")
                 shutdown timeout: \(shutdownTimeout.map { "\($0)" } ?? "none")
@@ -94,10 +100,16 @@
                 let service = Task(executorPreference: simulation) {
                     let withService = Service(
                         scenario.composed(log, simulation),
-                        shutdownSignals: [SIGTERM, SIGINT],
+                        shutdownSignals: scenario.shutdownSignals,
                         shutdownTimeout: scenario.shutdownTimeout,
                         clock: ServiceClock(simulation.clock),
-                        signalStream: { requested in (signals, requested, []) },
+                        signalStream: { requested in
+                            log.append("subscribe \(requested)")
+                            let unavailable = scenario.unavailable
+                            return (
+                                signals, requested.filter { !unavailable.contains($0) }, unavailable
+                            )
+                        },
                         terminate: { log.append("terminate \($0)") },
                         taskExecutor: simulation,
                         offload: { await simulation.offload($0) },
@@ -192,15 +204,25 @@
                             try? await clock.sleep(for: work)
                             return .success(())
                         }
-                    case .handler(let blocks, let after):
-                        let handler: @Sendable () -> Void = {
-                            log.append("handler")
-                            simulation.block(for: blocks) { log.append("handler returned") }
+                    case .handlers(let blocks, let after):
+                        // Handler `index` and, inside it, those after it.
+                        func registered(from index: Int) async {
+                            guard index < blocks.count else {
+                                await shutdown.requested
+                                try? await clock.sleep(for: after)
+                                return
+                            }
+                            let handler: @Sendable () -> Void = {
+                                log.append("handler \(index)")
+                                simulation.block(for: blocks[index]) {
+                                    log.append("handler \(index) returned")
+                                }
+                            }
+                            await withShutdownHandler(on: shutdown, handler) {
+                                await registered(from: index + 1)
+                            }
                         }
-                        await withShutdownHandler(on: shutdown, handler) {
-                            await shutdown.requested
-                            try? await clock.sleep(for: after)
-                        }
+                        await registered(from: 0)
                 }
                 log.append(fails ? "served failed" : "served")
                 return fails ? .failure(.boom("serve")) : .success(())
@@ -271,16 +293,37 @@
                     case 1: .finish(after: try time(upTo: 12))
                     case 2: .ignoreShutdown
                     case 3: .cancelOnShutdown(work: try time(upTo: 12))
-                    default: .handler(blocks: try time(upTo: 8), after: try time(upTo: 2))
+                    default:
+                        .handlers(
+                            blocks: try (0..<(try tc.draw(.int(in: 1...3)))).map { _ in
+                                try time(upTo: 8)
+                            },
+                            after: try time(upTo: 2)
+                        )
                 }
-            let signalCount = try tc.draw(.oneOf(.int(in: 0...3), .int(in: 0...8)))
+            // What the service subscribes to: none at all, so only serve
+            // returning stops it, or a third its stages never see.
+            let shutdownSignals = try tc.draw(
+                .element(of: [[SIGTERM, SIGINT], [SIGTERM], [], [SIGTERM, SIGINT, SIGHUP]])
+            )
+            // Rarely, as then nothing runs; at least one, in request order.
+            var unavailable: [Int32] = []
+            if !shutdownSignals.isEmpty, try tc.draw(.bool(probability: 0.08)) {
+                let kept = try shutdownSignals.map { _ in try tc.draw(.bool()) }
+                unavailable = zip(shutdownSignals, kept).filter { $0.1 }.map(\.0)
+                if unavailable.isEmpty { unavailable = [shutdownSignals[0]] }
+            }
+            let signalCount =
+                shutdownSignals.isEmpty ? 0 : try tc.draw(.oneOf(.int(in: 0...3), .int(in: 0...8)))
             let signals = try (0..<signalCount).map { _ in
-                (at: try time(upTo: spread), signal: try tc.draw(.element(of: [SIGTERM, SIGINT])))
+                (at: try time(upTo: spread), signal: try tc.draw(.element(of: shutdownSignals)))
             }
             return Scenario(
                 brackets: brackets,
                 body: body,
                 bodyFails: try tc.draw(.bool(probability: fails)),
+                shutdownSignals: shutdownSignals,
+                unavailable: unavailable,
                 signals: signals.sorted { $0.at < $1.at },
                 callerCancels: try tc.draw(.optional(.int(in: 0...spread))).map { grid * $0 },
                 shutdownTimeout: try tc.draw(.optional(.int(in: 0...min(12, spread)))).map {
@@ -307,8 +350,10 @@
                 brackets: try (0..<(try tc.draw(.int(in: 1...3)))).map { index in
                     Scenario.Bracket(name: ["a", "b", "c"][index], acquire: calm, dispose: calm)
                 },
-                body: .handler(blocks: grid * blocks, after: grid * returnsAfter),
+                body: .handlers(blocks: [grid * blocks], after: grid * returnsAfter),
                 bodyFails: false,
+                shutdownSignals: [SIGTERM, SIGINT],
+                unavailable: [],
                 signals: [(at: first, signal: SIGTERM)],
                 callerCancels: nil,
                 shutdownTimeout: nil,

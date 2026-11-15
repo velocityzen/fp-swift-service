@@ -29,7 +29,7 @@
                 tc.note("trace:\n" + run.timeline)
                 tc.note("result: \(run.result)")
                 run.check(against: scenario)
-                for ending in ServiceReach.endings(of: run) { try tc.event(ending) }
+                for ending in ServiceReach.endings(of: run, scenario) { try tc.event(ending) }
             }
         }
 
@@ -47,7 +47,9 @@
                 )
                 tc.note("trace:\n" + run.timeline)
                 run.check(against: scenario)
-                if ServiceReach.endings(of: run).contains(ServiceReach.cancelledWhileHandlerRuns) {
+                if ServiceReach.endings(of: run, scenario).contains(
+                    ServiceReach.cancelledWhileHandlerRuns
+                ) {
                     try tc.event(ServiceReach.cancelledWhileHandlerRuns)
                 }
             }
@@ -81,15 +83,23 @@
     enum ServiceReach {
         static let all = [
             "success", "cancelled", "start failed", "serve failed", "stop failed",
-            "serve and stop failed", "shutdown timeout", "handler returned", "terminated",
+            "serve and stop failed", "shutdown timeout", "signals unavailable", "handler returned",
+            "several handlers ran", "terminated", disposedInStageTwo, outlastedTheTimeout,
         ]
+
+        /// A dispose began after stage 2 did, so it must be cancelled.
+        static let disposedInStageTwo = "a dispose began in stage 2"
+
+        /// The stop outlasted `shutdownTimeout` with nothing else cancelling
+        /// it first: the run must time out.
+        static let outlastedTheTimeout = "the stop outlasted the timeout"
 
         /// Serve has returned in stage 1 and a handler still runs when stage
         /// 2 begins: dispose must stop waiting for it. Rare in random
         /// scenarios, so `stageTwoEndsTheWaitForHandlers` draws it directly.
         static let cancelledWhileHandlerRuns = "stage 2 while dispose waited for a handler"
 
-        static func endings(of run: Run) -> [String] {
+        static func endings(of run: Run, _ scenario: Scenario) -> [String] {
             var endings: [String] = []
             switch run.result {
                 case .success(let outcome):
@@ -101,18 +111,50 @@
                 case .failure(.shutdownTimeout): endings.append("shutdown timeout")
                 case .failure(.signalsUnavailable): endings.append("signals unavailable")
             }
-            if run.trace.contains("handler returned") { endings.append("handler returned") }
+            endings += stopping(of: run, scenario)
+            if run.trace.contains(where: { $0.hasPrefix("terminate ") }) {
+                endings.append("terminated")
+            }
+            return endings
+        }
+
+        /// The paths through stopping that the checks of handlers, stage 2 and
+        /// the timeout need a run to take.
+        private static func stopping(of run: Run, _ scenario: Scenario) -> [String] {
+            var endings: [String] = []
             let trace = run.trace
+            func handlerReturned(_ line: String) -> Bool {
+                line.hasPrefix("handler ") && line.hasSuffix(" returned")
+            }
+            if trace.contains(where: handlerReturned) { endings.append("handler returned") }
+            if trace.contains("handler 1") { endings.append("several handlers ran") }
+            let cancel = trace.firstIndex { $0.hasPrefix("event: cancelling") }
             if let served = trace.firstIndex(where: { $0.hasPrefix("served") }),
-                let handler = trace.firstIndex(of: "handler"),
-                let cancel = trace.firstIndex(where: { $0.hasPrefix("event: cancelling") }),
+                let handler = trace.firstIndex(of: "handler 0"), let cancel,
                 handler < cancel, served < cancel,
-                (trace.firstIndex(of: "handler returned") ?? trace.count) > cancel
+                trace[..<cancel].count(where: handlerReturned)
+                    < trace[..<cancel].count(where: {
+                        $0.hasPrefix("handler ") && !handlerReturned($0)
+                    })
             {
                 endings.append(cancelledWhileHandlerRuns)
             }
-            if run.trace.contains(where: { $0.hasPrefix("terminate ") }) {
-                endings.append("terminated")
+            if let cancel,
+                trace[cancel...].contains(where: {
+                    $0.hasPrefix("dispose ") && !$0.hasPrefix("dispose failed ")
+                })
+            {
+                endings.append(disposedInStageTwo)
+            }
+            if case .failure(.shutdownTimeout) = run.result,
+                let returned = trace.lastIndex(where: {
+                    $0.hasPrefix("disposed ") || $0.hasPrefix("dispose failed ")
+                }),
+                let graceful = trace.firstIndex(where: { $0.hasPrefix("event: shutting down") }),
+                let limit = scenario.shutdownTimeout,
+                run.times[returned] > run.times[graceful] + limit
+            {
+                endings.append(outlastedTheTimeout)
             }
             return endings
         }
