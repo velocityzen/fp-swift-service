@@ -323,7 +323,7 @@ for await signal in await processSignals([SIGTERM, SIGINT]) {
 - Signals that can't be caught (`SIGKILL`, `SIGSTOP`, or numbers the platform lacks or reserves) are skipped. If none are left, the stream is already finished.
 - While the stream lives, the signals' default actions are suspended. They are caught, not ignored, so child processes still start with the defaults.
 - Cancelling the iterating task ends the stream; the last stream on a signal restores its previous disposition. Breaking out of the loop doesn't end it.
-- Several streams can share a signal; each gets every delivery. Copies of a signal sent at the same instant may merge into one.
+- Several streams can share a signal; each gets every delivery. Signals sent at the same instant may merge, except on Darwin.
 - A signal is never lost: one that arrives as the last stream on it ends is either delivered or has the signal's previous effect. For the latter it is sent again, by this process.
 - On Windows, console events arrive as `SIGINT` (Ctrl-C), `SIGBREAK` (Ctrl-Break) and `SIGTERM` (close, logoff, shutdown). A `SIGTERM` event is held while any stream subscribes to `SIGTERM`, which gives dispose the few seconds Windows allows.
 

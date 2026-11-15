@@ -53,6 +53,21 @@ struct ProcessSignalsTests {
         #expect(disposition(testSignal) == original)  // `collect` ended the stream
     }
 
+    #if canImport(Darwin)
+        // Darwin's kqueue counts every send. Linux reads them from its
+        // signal handler, and the kernel keeps only one pending instance of a
+        // standard signal, so copies sent in the same instant can merge: this
+        // holds on Darwin only.
+        @Test("signals sent back to back stay separate elements")
+        func coalesced() async throws {
+            let stream = await processSignals([SIGWINCH])
+            send(SIGWINCH)
+            send(SIGWINCH)
+            send(SIGWINCH)
+            #expect(try await collect(3, from: stream) == [SIGWINCH, SIGWINCH, SIGWINCH])
+        }
+    #endif
+
     @Test("a signal listed twice is delivered once per send")
     func duplicates() async throws {
         let stream = await processSignals([testSignal, testSignal])
@@ -152,10 +167,9 @@ struct ProcessSignalsTests {
 
 #if !os(Windows)
     extension ProcessSignalsTests {
-        /// Darwin's kqueue, once used to record signals, did so before a
-        /// thread took them; a disposition restored in between gave a
-        /// delivered signal its previous effect too, and as `SIG_DFL` ended
-        /// the process.
+        /// On Darwin a thread takes a signal after kqueue has recorded it;
+        /// a disposition restored in between gave a delivered signal its
+        /// previous effect too, and as `SIG_DFL` ended the process.
         @Test("a delivered signal doesn't also have its previous effect")
         func deliveredOnce() async {
             var counting = sigaction()

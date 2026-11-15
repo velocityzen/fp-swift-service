@@ -78,7 +78,7 @@
                             )
                             let (owed, got) = model.account(of: signal)
                             #expect(
-                                got == owed,
+                                underThreadSanitizer ? got >= owed : got == owed,
                                 "\(signalName(signal)): \(got) effects for \(owed)"
                             )
                         }
@@ -117,6 +117,19 @@
     func previousEffects(of signal: Int32) -> Int {
         previousEffects[Int(signal)].load(ordering: .relaxed)
     }
+
+    /// Whether Thread Sanitizer runs this process. It holds a signal handler back until the thread
+    /// that took the signal runs instrumented code, then runs the handler in force by then: a
+    /// signal caught as its last stream ends can have its previous effect besides being
+    /// delivered, so under it the account is only a bound.
+    let underThreadSanitizer: Bool = {
+        #if canImport(Darwin)
+            let everywhere = UnsafeMutableRawPointer(bitPattern: -2)  // RTLD_DEFAULT
+        #else
+            let everywhere: UnsafeMutableRawPointer? = nil  // RTLD_DEFAULT
+        #endif
+        return dlsym(everywhere, "__tsan_init") != nil
+    }()
 
     /// The suite's own handler, as `disposition` shows it.
     nonisolated(unsafe) var countingHandler: UInt = 0
@@ -208,8 +221,14 @@
         /// Waits, ten seconds at most, until `done` holds; returns whether it did.
         static func arrives(_ done: @escaping @Sendable () -> Bool) async -> Bool {
             (try? await withDeadline(.seconds(10)) { () async -> Bool in
-                // Stops once the deadline cancels it: a cancelled sleep returns at once.
-                while !done(), !Task.isCancelled { try? await Task.sleep(for: .milliseconds(1)) }
+                // Stops once the deadline cancels it: a cancelled sleep returns at once. Each
+                // round wakes the main thread, which takes the signals: Thread Sanitizer runs a
+                // handler, such as the suite's counting one, only once that thread runs
+                // instrumented code, and it otherwise idles.
+                while !done(), !Task.isCancelled {
+                    await MainActor.run {}
+                    try? await Task.sleep(for: .milliseconds(1))
+                }
                 return done()
             }) ?? false
         }
@@ -401,7 +420,10 @@
         .invariant("a signal no live stream took had one effect", everyStep: true) { m, _ in
             for signal in ours {
                 let (owed, got) = m.account(of: signal)
-                #expect(got == owed, "\(signalName(signal)): \(got) effects for \(owed)")
+                #expect(
+                    underThreadSanitizer ? got >= owed : got == owed,
+                    "\(signalName(signal)): \(got) effects for \(owed)"
+                )
             }
         }
         .invariant("each send arrived once", everyStep: true) { m, _ in

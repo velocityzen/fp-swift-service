@@ -35,8 +35,8 @@ import Synchronization
 /// - Cancelling the iterating task, or releasing the stream, ends it; the
 ///   last stream on a signal restores its previous disposition. Breaking
 ///   out of the loop doesn't end it.
-/// - Several streams can share a signal; each gets every delivery. Copies of
-///   a signal sent at the same instant may merge into one.
+/// - Several streams can share a signal; each gets every delivery. Signals
+///   sent at the same instant may merge, except on Darwin.
 /// - A signal is never lost: one that arrives as the last stream on it ends
 ///   is either delivered or has the signal's previous effect. For the
 ///   latter it is sent again, by this process.
@@ -143,6 +143,53 @@ func removeSubscriber(from signal: Int32) {
 /// none.
 package func subscriberCount(of signal: Int32) -> Int {
     subscribers.withLock { $0[signal]?.count ?? 0 }
+}
+
+/// Where each stream's signals go. Every platform delivers through these.
+let routes = SignalRoutes()
+
+final class SignalRoutes: Sendable {
+    /// One stream's signals and where they go.
+    private struct Route {
+        let signals: [Int32]
+        let continuation: AsyncStream<Int32>.Continuation
+    }
+
+    private struct Table {
+        var lastID: UInt64 = 0
+        var byID: [UInt64: Route] = [:]
+    }
+
+    private let table = Mutex(Table())
+
+    /// Delivers `signals` to `continuation` until ``unroute(_:)`` is called with the returned id.
+    func route(_ signals: [Int32], to continuation: AsyncStream<Int32>.Continuation) -> UInt64 {
+        table.withLock { table in
+            table.lastID += 1
+            table.byID[table.lastID] = Route(signals: signals, continuation: continuation)
+            return table.lastID
+        }
+    }
+
+    func unroute(_ id: UInt64) {
+        _ = table.withLock { $0.byID.removeValue(forKey: id) }
+    }
+
+    /// Yields `signal` to each stream subscribed to it, and returns whether one took it: a stream
+    /// that has ended takes nothing.
+    ///
+    /// Yielded outside the lock: cancelling a stream's task releases it, which takes the lock,
+    /// while the runtime holds a lock of the task that a yield to it waits for.
+    func deliver(_ signal: Int32) -> Bool {
+        let continuations = table.withLock { table in
+            table.byID.values.filter { $0.signals.contains(signal) }.map(\.continuation)
+        }
+        var taken = false
+        for continuation in continuations {
+            if case .enqueued = continuation.yield(signal) { taken = true }
+        }
+        return taken
+    }
 }
 
 // Both return the array itself when there is nothing to drop, the usual case,

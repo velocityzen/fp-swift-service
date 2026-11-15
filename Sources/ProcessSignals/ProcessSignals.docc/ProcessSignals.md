@@ -17,7 +17,7 @@ for await signal in await processSignals([SIGTERM, SIGINT]) {
 - **While the stream lives:** the signals' default actions are suspended. The handler can interrupt a blocking call; with `SA_RESTART`, most resume.
 - **Child processes:** the signals are caught, not ignored, so `exec` resets them and children start with the defaults. `SIGCHLD` can be subscribed to, and children can still be waited for.
 - **Ending:** cancelling the iterating task ends the stream; the last stream on a signal restores its previous disposition. Breaking out of the loop doesn't end it.
-- **Sharing:** several streams can share a signal; each gets every delivery. Copies of a signal sent at the same instant may merge into one.
+- **Sharing:** several streams can share a signal; each gets every delivery. Signals sent at the same instant may merge, except on Darwin.
 - **Ending while a signal arrives:** a signal is never lost. One that arrives as the last stream on it ends is either delivered or has the signal's previous effect; for the latter it is sent again, by this process.
 - **Windows:** console events arrive as `SIGINT` (Ctrl-C), `SIGBREAK` (Ctrl-Break) and `SIGTERM` (close, logoff, shutdown), the only signals available there. A `SIGTERM` event is held while any stream subscribes to `SIGTERM`, which gives cleanup the few seconds Windows allows.
 
