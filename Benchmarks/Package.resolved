@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/velocityzen/fp-swift",
       "state" : {
-        "revision" : "e814cdef1c72aeeb8c8101ae42c7fce6cd32dbd8",
-        "version" : "4.7.0"
+        "revision" : "1aea1f178706a8626f70604e4efb551a445e16ac",
+        "version" : "4.8.0"
       }
     },
     {
