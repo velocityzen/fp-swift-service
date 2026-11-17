@@ -347,7 +347,7 @@
             let into = grid * (try tc.draw(.int(in: (returnsAfter + 1)...(blocks - 1))))
             let calm = Scenario.Phase(duration: .zero, fails: false, ignoresCancellation: false)
             var scenario = Scenario(
-                brackets: try (0..<(try tc.draw(.int(in: 1...3)))).map { index in
+                brackets: (0..<(try tc.draw(.int(in: 1...3)))).map { index in
                     Scenario.Bracket(name: ["a", "b", "c"][index], acquire: calm, dispose: calm)
                 },
                 body: .handlers(blocks: [grid * blocks], after: grid * returnsAfter),
