@@ -15,7 +15,7 @@ let package = Package(
     platforms: [.macOS(.v27)],
     dependencies: [
         .package(name: "fp-swift-service", path: ".."),
-        .package(url: "https://github.com/velocityzen/fp-swift-bracket", from: "3.0.1"),
+        .package(url: "https://github.com/velocityzen/fp-swift-bracket", from: "3.0.2"),
         .package(
             url: "https://github.com/ordo-one/benchmark",
             .upToNextMajor(from: "1.38.1")
